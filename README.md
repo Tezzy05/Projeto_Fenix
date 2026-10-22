@@ -20,24 +20,26 @@ Essa versão roda inteira no navegador, sem servidor. As rotas `/api/*` são ate
 
 ## Login
 
-Entre com usuário e senha, ou abra o campo discreto **Acesso de demonstração** abaixo do botão Entrar e clique na pessoa. Todos os usuários de demonstração usam a senha **`fenix123`**.
+Entre com usuário e senha, ou abra o campo discreto **Acesso de demonstração** abaixo do botão Entrar. Ele mostra um botão por perfil, sem nomes de pessoas, e entra com um clique.
 
-O campo só aparece em modo demonstração: no GitHub Pages e no servidor com `FENIX_DEMO=1` (o `.bat` liga). Em produção (sem `FENIX_DEMO`) a tela mostra só usuário e senha. No GitHub Pages, o link **Restaurar dados de exemplo** dentro do campo apaga o que foi testado naquele navegador e volta aos laudos iniciais.
-
-| Usuário | Nome | Perfil |
+| Perfil | Entra como | O que acessa |
 |---|---|---|
-| `tec1`, `car`, `mar` | Técnico Demo, Carlos, Marcos | Técnico |
-| `pat`, `her`, `rod` | Patrícia, Herval, Rodrigo | Gestão (Supervisão Operacional) |
-| `tha`, `ana` | Thais, Ana | Projetos |
-| `and`, `cur`, `duf` | Anderson, Cury, Duarte | ADM |
-| `bia` | Bianca | Consulta |
+| Operacional | `tec1` | Preenche o ROI em campo e baixa o PDF do ROI que gerou. |
+| Gestão | `pat` | Vê todos os ROIs e LEIs, edita o LEI pré-preenchido e o valida/assina. Depois da validação, nada mais pode ser editado. |
+| Projetos | `tha` | Baixa o PDF do LEI validado e o Check-in Fotográfico para o cliente. |
+| ADM | `and` | Vê todos os ROIs completos, com fotos e dados do equipamento. |
+| Consulta | `bia` | Somente leitura: visualiza ROIs e LEIs. |
+
+Os outros usuários de exemplo (`car`, `mar`, `her`, `rod`, `ana`, `cur`, `duf`) continuam existindo e entram pelo formulário. Senha de todos: **`fenix123`**.
+
+O campo só aparece em modo demonstração: no GitHub Pages e no servidor com `FENIX_DEMO=1` (o `.bat` liga). Em produção (sem `FENIX_DEMO`) a tela mostra só usuário e senha. Para retirar o campo de vez, apague o bloco `opts.demo` da função `login()` em `js/app.js`. No GitHub Pages, o link **Restaurar dados de exemplo** dentro do campo apaga o que foi testado naquele navegador e volta aos laudos iniciais.
 
 **Roteiro sugerido de apresentação**
-1. `tec1` (Técnico): preencha o ROI (botão `RM-2026-0147` preenche modem/chip via CMS), fotos, assinatura → concluir.
+1. **Operacional**: preencha o ROI (botão `RM-2026-0147` preenche modem/chip via CMS), fotos, assinatura → concluir.
 2. Ligue **Simular offline** (ou pare o servidor, na versão local): conclua outro ROI → fica na "fila local"; volte a conexão → envia sozinho.
-3. `pat` (Gestão): abra o laudo, altere checklist/observação, **Validar e assinar**.
-4. `tha` (Projetos): baixe o LEI, veja/baixe as fotos originais, monte o Check-in Fotográfico.
-5. `and` (ADM): usuários e matriz de permissões. `bia` (Consulta): somente leitura.
+3. **Gestão**: abra o laudo, altere checklist/observação, **Validar e assinar**.
+4. **Projetos**: baixe o LEI, veja/baixe as fotos originais, monte o Check-in Fotográfico.
+5. **ADM**: usuários e matriz de permissões. **Consulta**: somente leitura.
 
 ## Estrutura
 ```
