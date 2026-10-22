@@ -1,5 +1,5 @@
 // Service worker: app shell offline. Rede primeiro para mesma origem, com cache de reserva.
-const V = 'fenix-v3';
+const V = 'fenix-v4';
 const SHELL = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/data.js', 'js/ui.js', 'js/scene.js', 'js/docs.js', 'js/tecnico.js', 'js/painel.js', 'js/demo.js',
   'vendor/gsap.min.js', 'vendor/ScrollTrigger.min.js', 'vendor/motion.js', 'vendor/anime.umd.min.js', 'vendor/three.module.min.js', 'manifest.webmanifest', 'icon.svg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });

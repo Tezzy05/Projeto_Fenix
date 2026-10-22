@@ -59,15 +59,23 @@ window.addEventListener('fenix:unauth', () => { if (me) { me = null; cache.clear
 setInterval(() => { if (!document.hidden) pingServer(); }, 8000);
 
 /* ---------------- Login ---------------- */
-// Usuário e senha, como em produção. Em modo demo, o "Acesso de demonstração" (recolhido sob o botão Entrar) lista os
-// usuários de exemplo e entra com um clique. Ele só aparece quando o servidor informa demo (FENIX_DEMO=1 ou js/demo.js).
+// Usuário e senha, como em produção. Em modo demo, o "Acesso de demonstração" (recolhido sob o botão Entrar) mostra um
+// botão por perfil, sem nomes, que entra como o primeiro usuário ativo daquele perfil. Ele só aparece quando o servidor
+// informa demo (FENIX_DEMO=1 ou js/demo.js); para retirá-lo de vez, apague o bloco `opts.demo` abaixo.
+const DEMO_PERFIS = {
+  tecnico: ['Operacional', 'Preenche o ROI em campo e baixa o PDF do ROI que gerou.'],
+  gestao: ['Gestão', 'Vê todos os ROIs e LEIs, edita o LEI e o valida e assina.'],
+  projetos: ['Projetos', 'Baixa o LEI validado e o Check-in Fotográfico para o cliente.'],
+  adm: ['ADM', 'Vê todos os ROIs completos, com fotos e dados do equipamento.'],
+  consulta: ['Consulta', 'Somente leitura: visualiza ROIs e LEIs.'],
+};
 async function login() {
   shellFor = null;
   let opts = { demo: false, users: [] };
   try { opts = await api.get('/api/login-options'); } catch { /* servidor fora: só o formulário */ }
-  const quick = Object.entries(PERFIS).map(([k, p]) => {
-    const us = opts.users.filter(u => u.perfil === k);
-    return us.length ? `<p class="quick-g">${esc(p.label)}</p>${us.map(u => `<button type="button" class="quick-u" data-id="${esc(u.id)}"><span class="av">${esc(u.nome[0])}</span><span><b>${esc(u.nome)}</b> <small>· ${esc(u.id)}</small></span>${svgi('next', 16)}</button>`).join('')}` : '';
+  const quick = Object.entries(DEMO_PERFIS).map(([k, [nome, desc]]) => {
+    const u = opts.users.find(x => x.perfil === k);
+    return u ? `<button type="button" class="quick-u" data-id="${esc(u.id)}"><span class="av">${esc(nome[0])}</span><span><b>${esc(nome)}</b><small>${esc(desc)}</small></span>${svgi('next', 16)}</button>` : '';
   }).join('');
   app.innerHTML = `<section class="login"><canvas id="forest" aria-hidden="true"></canvas>
     <div class="login-top">${wordmark(false)}</div>
@@ -81,7 +89,7 @@ async function login() {
         <p class="form-err" id="lerr" role="alert"></p>
         <button class="btn lime big" type="submit">Entrar ${svgi('next', 20)}</button></form>
       ${opts.demo ? `<div class="quick"><button type="button" class="quick-toggle" id="qt" aria-expanded="false" aria-controls="ql">Acesso de demonstração ${svgi('down', 14)}</button>
-        <div class="quick-list" id="ql" hidden>${quick}<p class="quick-pw">Senha de todos: <b>${esc(opts.senha || '')}</b></p>
+        <div class="quick-list" id="ql" hidden>${quick}
           ${opts.local ? '<p class="quick-pw"><button type="button" class="btn-link" id="reset">Restaurar dados de exemplo</button></p>' : ''}</div></div>` : ''}
       <ul class="feat"><li>${hexi('wifi')}<span>Funciona sem sinal</span></li><li>${hexi('camera')}<span>Fotos com data e GPS</span></li><li>${hexi('doc')}<span>ROI e LEI em PDF</span></li></ul></div></section>`;
   const stop = mountForest($('#forest'));
