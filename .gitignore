@@ -1,0 +1,10 @@
+# Skipper — machine-local artifacts (hook scratch + derived index), never commit
+.claude/.skipper-*
+.skipper/*
+!.skipper/receipts/
+
+# Projeto Fênix — gerados localmente, nunca versionar (banco, fotos, chave da sessão)
+backend/instance/
+__pycache__/
+*.pyc
+.venv/

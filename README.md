@@ -2,8 +2,13 @@
 
 Fluxo **ROI → LEI → Check-in Fotográfico**: front mobile-first offline-first + backend Flask.
 
-## Rodar a demonstração (Windows)
-Dê dois cliques em **`iniciar_servidor.bat`** (ou rode no cmd). Na primeira vez ele cria o ambiente virtual e instala o Flask; depois abre http://localhost:5000.
+## Como abrir
+
+**Pelo navegador (GitHub Pages):** https://tezzy05.github.io/Projeto_Fenix/
+
+Essa versão roda inteira no navegador, sem servidor. As rotas `/api/*` são atendidas por `js/demo.js`, que segue as mesmas regras do backend. Os laudos de exemplo, os ROIs enviados e as fotos ficam salvos só no navegador de quem abriu. Para usar esse modo em outro endereço, acrescente `?demo` à URL (ex.: `http://localhost:5000/?demo`).
+
+**No computador (com o servidor Flask):** dê dois cliques em **`iniciar_servidor.bat`** (ou rode no cmd). Na primeira vez ele cria o ambiente virtual e instala o Flask; depois abre http://localhost:5000.
 
 | Comando | O que faz |
 |---|---|
@@ -11,13 +16,25 @@ Dê dois cliques em **`iniciar_servidor.bat`** (ou rode no cmd). Na primeira vez
 | `iniciar_servidor.bat lan` | também acessível por celulares na mesma rede (mostra o IP) |
 | `iniciar_servidor.bat reset` | apaga banco e fotos da demo (pede confirmação) |
 
-Login demo: escolha o usuário; senha de todos = `fenix123` (só existe com `FENIX_DEMO=1`, que o `.bat` liga).
-
 **Levando para outro computador:** copie a pasta inteira, mas **apague `.venv\` antes** (não é portátil — fica preso ao Python da máquina de origem). O `.bat` recria automaticamente na primeira execução; se esquecer de apagar, ele mesmo detecta um `.venv` quebrado ("did not find executable at...") e recria sozinho. Pode manter `backend\instance\` se quiser levar os dados já cadastrados.
+
+## Login
+
+Entre com usuário e senha, ou abra o campo discreto **Acesso de demonstração** abaixo do botão Entrar e clique na pessoa. Todos os usuários de demonstração usam a senha **`fenix123`**.
+
+O campo só aparece em modo demonstração: no GitHub Pages e no servidor com `FENIX_DEMO=1` (o `.bat` liga). Em produção (sem `FENIX_DEMO`) a tela mostra só usuário e senha. No GitHub Pages, o link **Restaurar dados de exemplo** dentro do campo apaga o que foi testado naquele navegador e volta aos laudos iniciais.
+
+| Usuário | Nome | Perfil |
+|---|---|---|
+| `tec1`, `car`, `mar` | Técnico Demo, Carlos, Marcos | Técnico |
+| `pat`, `her`, `rod` | Patrícia, Herval, Rodrigo | Gestão (Supervisão Operacional) |
+| `tha`, `ana` | Thais, Ana | Projetos |
+| `and`, `cur`, `duf` | Anderson, Cury, Duarte | ADM |
+| `bia` | Bianca | Consulta |
 
 **Roteiro sugerido de apresentação**
 1. `tec1` (Técnico): preencha o ROI (botão `RM-2026-0147` preenche modem/chip via CMS), fotos, assinatura → concluir.
-2. Ligue **Simular offline** (ou pare o servidor): conclua outro ROI → fica na "fila local"; volte a conexão → envia sozinho.
+2. Ligue **Simular offline** (ou pare o servidor, na versão local): conclua outro ROI → fica na "fila local"; volte a conexão → envia sozinho.
 3. `pat` (Gestão): abra o laudo, altere checklist/observação, **Validar e assinar**.
 4. `tha` (Projetos): baixe o LEI, veja/baixe as fotos originais, monte o Check-in Fotográfico.
 5. `and` (ADM): usuários e matriz de permissões. `bia` (Consulta): somente leitura.
@@ -26,6 +43,7 @@ Login demo: escolha o usuário; senha de todos = `fenix123` (só existe com `FEN
 ```
 iniciar_servidor.bat      # atalho da demo
 index.html, css/, js/, vendor/, sw.js   # front (servido pelo Flask, só estas pastas — lista branca)
+js/demo.js                # API de demonstração no navegador (GitHub Pages / ?demo)
 backend/
   app.py        # rotas da API + entrega do front + CLI
   services.py   # gravar ROI (idempotente), serializar, validar LEI
@@ -34,7 +52,7 @@ backend/
   storage.py    # disco local + Google Drive (opcional)
   cms.py        # consulta ao CMS (demo)
   seed.py       # usuários e laudos de exemplo
-  instance/     # fenix.db, storage/, secret.key  (gerado; NÃO versionar)
+  instance/     # fenix.db, storage/, secret.key  (gerado; fora do Git pelo .gitignore)
 ```
 
 ## API (resumo)
@@ -49,6 +67,14 @@ backend/
 | `GET /api/cms/<serie>` | tecnico, adm | autopreenchimento (demo) |
 | `GET /api/usuarios` | adm | lista |
 | `POST /api/admin/drive/retry` | adm | reenvia ao Drive o que falhou |
+
+## Publicação no GitHub Pages
+No repositório: **Settings → Pages → Build and deployment → Source: Deploy from a branch**, branch `main`, pasta `/ (root)`. O arquivo `.nojekyll` faz o GitHub publicar os arquivos como estão. A cada push no `main` o site é atualizado em 1 ou 2 minutos.
+
+O que vale para a versão do GitHub Pages:
+- O login é simulado: as senhas não protegem nada.
+- Não há servidor. Cada navegador tem os seus próprios dados (o que a Patrícia valida num computador não aparece em outro).
+- O Google Drive não é usado; as fotos ficam no navegador.
 
 ## Produção no PythonAnywhere
 1. Suba a pasta, crie o virtualenv e `pip install -r backend/requirements.txt` (+ `requirements-drive.txt` para o Drive).
