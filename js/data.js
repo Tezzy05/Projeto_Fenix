@@ -35,10 +35,13 @@ export const uuid = () => crypto.randomUUID?.() ?? ([1e7] + -1e3 + -4e3 + -8e3 +
 export const notify = () => window.dispatchEvent(new Event('fenix:data'));
 
 /* ---------- Cliente da API ---------- */
+// Sem backend (GitHub Pages ou ?demo): a API é atendida no próprio navegador por js/demo.js, com dados de exemplo.
+export const LOCAL = /\.github\.io$/i.test(location.hostname) || new URLSearchParams(location.search).has('demo');
+const local = LOCAL ? import('./demo.js') : null;
 export class ApiErr extends Error { constructor(m, status) { super(m); this.status = status; } }
 async function req(path, opt = {}) {
   let r;
-  try { r = await fetch(path, { credentials: 'same-origin', ...opt }); }
+  try { r = local ? await (await local).handle(path, opt) : await fetch(path, { credentials: 'same-origin', ...opt }); }
   catch { net.serverUp = false; throw new ApiErr('Sem conexão com o servidor', 0); }
   net.serverUp = true;
   let j = null; try { j = await r.json(); } catch { /* corpo não-JSON */ }
@@ -59,7 +62,8 @@ export const net = {
 };
 export async function pingServer() {
   const was = net.online;
-  try { const c = new AbortController(); const t = setTimeout(() => c.abort(), 3000); const r = await fetch('/api/health', { cache: 'no-store', signal: c.signal }); clearTimeout(t); net.serverUp = r.ok; }
+  if (LOCAL) net.serverUp = true;
+  else try { const c = new AbortController(); const t = setTimeout(() => c.abort(), 3000); const r = await fetch('/api/health', { cache: 'no-store', signal: c.signal }); clearTimeout(t); net.serverUp = r.ok; }
   catch { net.serverUp = false; }
   if (was !== net.online) window.dispatchEvent(new Event('fenix:net'));
   return net.online;
@@ -86,6 +90,7 @@ export const db = {
   get: id => tx('readonly', s => s.get(id)),
   put: r => tx('readwrite', s => s.put(r)),
   del: id => tx('readwrite', s => s.delete(id)),
+  clear: () => tx('readwrite', s => s.clear()),
 };
 
 /* ---------- Sincronização: fila local → POST /api/roi ---------- */

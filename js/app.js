@@ -59,11 +59,16 @@ window.addEventListener('fenix:unauth', () => { if (me) { me = null; cache.clear
 setInterval(() => { if (!document.hidden) pingServer(); }, 8000);
 
 /* ---------------- Login ---------------- */
+// Usuário e senha, como em produção. Em modo demo, o "Acesso de demonstração" (recolhido sob o botão Entrar) lista os
+// usuários de exemplo e entra com um clique. Ele só aparece quando o servidor informa demo (FENIX_DEMO=1 ou js/demo.js).
 async function login() {
   shellFor = null;
   let opts = { demo: false, users: [] };
-  try { opts = await api.get('/api/login-options'); } catch { /* servidor fora: campo de texto */ }
-  const groups = Object.entries(PERFIS).map(([k, p]) => `<optgroup label="${esc(p.label)}">${opts.users.filter(u => u.perfil === k).map(u => `<option value="${esc(u.id)}">${esc(u.nome)}</option>`).join('')}</optgroup>`).join('');
+  try { opts = await api.get('/api/login-options'); } catch { /* servidor fora: só o formulário */ }
+  const quick = Object.entries(PERFIS).map(([k, p]) => {
+    const us = opts.users.filter(u => u.perfil === k);
+    return us.length ? `<p class="quick-g">${esc(p.label)}</p>${us.map(u => `<button type="button" class="quick-u" data-id="${esc(u.id)}"><span class="av">${esc(u.nome[0])}</span><span><b>${esc(u.nome)}</b> <small>· ${esc(u.id)}</small></span>${svgi('next', 16)}</button>`).join('')}` : '';
+  }).join('');
   app.innerHTML = `<section class="login"><canvas id="forest" aria-hidden="true"></canvas>
     <div class="login-top">${wordmark(false)}</div>
     <div class="leaf"><p class="eyebrow">Retorna Machine · Operação</p>
@@ -71,12 +76,14 @@ async function login() {
       <p class="lead tag">Instalação registrada, do campo ao laudo.</p>
       <p class="lead sm">ROI offline-first para o técnico, validação da Supervisão e LEI pronto para o cliente.</p>
       <form id="lf">
-        <label class="fld"><span>Usuário${opts.demo ? ' <small>(ambiente de demonstração)</small>' : ''}</span>${opts.demo ? `<select id="who" name="usuario">${groups}</select>` : '<input id="who" name="usuario" autocomplete="username" required>'}</label>
-        <label class="fld"><span>Senha${opts.demo ? ` <small>demo: ${esc(opts.senha || '')}</small>` : ''}</span><input id="pw" type="password" name="senha" autocomplete="current-password" required></label>
+        <label class="fld"><span>Usuário</span><input id="who" name="usuario" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+        <label class="fld"><span>Senha</span><span class="pw"><input id="pw" type="password" name="senha" autocomplete="current-password" required><button type="button" class="icon-btn" id="eye" aria-label="Mostrar senha">${svgi('eye', 18)}</button></span></label>
         <p class="form-err" id="lerr" role="alert"></p>
         <button class="btn lime big" type="submit">Entrar ${svgi('next', 20)}</button></form>
+      ${opts.demo ? `<div class="quick"><button type="button" class="quick-toggle" id="qt" aria-expanded="false" aria-controls="ql">Acesso de demonstração ${svgi('down', 14)}</button>
+        <div class="quick-list" id="ql" hidden>${quick}<p class="quick-pw">Senha de todos: <b>${esc(opts.senha || '')}</b></p>
+          ${opts.local ? '<p class="quick-pw"><button type="button" class="btn-link" id="reset">Restaurar dados de exemplo</button></p>' : ''}</div></div>` : ''}
       <ul class="feat"><li>${hexi('wifi')}<span>Funciona sem sinal</span></li><li>${hexi('camera')}<span>Fotos com data e GPS</span></li><li>${hexi('doc')}<span>ROI e LEI em PDF</span></li></ul></div></section>`;
-  if (opts.demo && opts.senha) $('#pw').value = opts.senha;
   const stop = mountForest($('#forest'));
   const g = window.gsap;
   if (g && !reduced) {
@@ -84,22 +91,41 @@ async function login() {
     tl.fromTo('.leaf', { clipPath: 'inset(0 100% 0 0 round 96px 14px)' }, { clipPath: 'inset(0 0% 0 0 round 96px 14px)', duration: 1, ease: 'power3.inOut', clearProps: 'clipPath' }, 0.1)
       .from('.leaf .ln', { yPercent: 110, opacity: 0, duration: 0.7, stagger: 0.1 }, 0.55)
       .fromTo('.leaf .hl', { '--w': '0%' }, { '--w': '100%', duration: 0.7 }, 1.05)
-      .from('.leaf .eyebrow,.leaf .lead,.leaf form', { opacity: 0, y: 16, duration: 0.6, stagger: 0.1 }, 0.9)
+      .from('.leaf .eyebrow,.leaf .lead,.leaf form,.leaf .quick', { opacity: 0, y: 16, duration: 0.6, stagger: 0.1 }, 0.9)
       .from('.feat li', { opacity: 0, y: 14, duration: 0.5, stagger: 0.1 }, 1.3)
       .from('.login-top', { opacity: 0, y: -12, duration: 0.6 }, 0.2);
     tl.eventCallback('onComplete', () => drawHex(app));
   } else drawHex(app);
-  $('#lf').onsubmit = async e => {
-    e.preventDefault();
-    const btn = $('button[type=submit]', e.target); btn.disabled = true; $('#lerr').textContent = '';
+
+  const enter = async (id, senha, btn) => {
+    if (btn) btn.disabled = true;
+    $('#lerr').textContent = '';
     try {
-      me = await api.post('/api/login', { id: $('#who').value.trim(), senha: $('#pw').value }); cache.set(me);
+      me = await api.post('/api/login', { id, senha }); cache.set(me);
       location.hash = PERFIS[me.perfil].nav[0][0];
     } catch (err) {
-      btn.disabled = false; $('#lerr').textContent = err.status === 0 ? 'Servidor indisponível. Verifique a conexão.' : err.message;
+      if (btn) btn.disabled = false;
+      $('#lerr').textContent = err.status === 0 ? 'Servidor indisponível. Verifique a conexão.' : err.message;
       mo($('.leaf'), { x: [0, -8, 8, -5, 5, 0] }, { duration: 0.4 });
     }
   };
+  $('#lf').onsubmit = e => { e.preventDefault(); enter($('#who').value.trim(), $('#pw').value, $('button[type=submit]', e.target)); };
+  $('#eye').onclick = e => {
+    const pw = $('#pw'), show = pw.type === 'password';
+    pw.type = show ? 'text' : 'password';
+    e.currentTarget.innerHTML = svgi(show ? 'eyeoff' : 'eye', 18);
+    e.currentTarget.setAttribute('aria-label', show ? 'Ocultar senha' : 'Mostrar senha');
+  };
+  if (opts.demo) {
+    $('#qt').onclick = e => {
+      const open = e.currentTarget.getAttribute('aria-expanded') !== 'true', ql = $('#ql');
+      e.currentTarget.setAttribute('aria-expanded', open);
+      ql.hidden = !open;
+      if (open) mo(ql, { opacity: [0, 1], y: [-6, 0] }, { duration: 0.25 });
+    };
+    $('#ql').onclick = e => { const b = e.target.closest('.quick-u'); if (b) enter(b.dataset.id, opts.senha, b); };
+    if (opts.local) $('#reset').onclick = async () => { await api.post('/api/demo/reset'); await db.clear(); toast('Dados de exemplo restaurados'); };
+  }
   return stop;
 }
 

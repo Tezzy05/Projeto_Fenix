@@ -180,6 +180,16 @@ figcaption{padding:8px 10px;font-size:12px;font-weight:600;display:flex;justify-
 .leaf form{margin-top:24px}.leaf .lead{font-size:15px;margin-top:8px}.leaf .lead.tag{font-size:clamp(20px,2.6vw,26px);font-weight:600;color:#000;margin-top:14px;line-height:1.2}
 .h-hero .hl{margin-left:-.14em}
 .form-err{color:var(--nok);font-weight:600;font-size:14px;min-height:0;margin:-4px 0 4px}.form-err:empty{display:none}
+.pw{position:relative;display:block}.pw input{padding-right:50px}.pw .icon-btn{position:absolute;right:3px;top:50%;transform:translateY(-50%)}
+.quick{margin-top:20px;border-top:1.5px solid var(--line);padding-top:8px}
+.quick-toggle{display:inline-flex;align-items:center;gap:6px;background:none;border:0;cursor:pointer;padding:8px 0;font-size:13px;font-weight:600;color:var(--mute)}
+.quick-toggle:hover{color:#000}.quick-toggle .ico{transition:transform .2s}.quick-toggle[aria-expanded=true] .ico{transform:rotate(180deg)}
+.quick-list{display:grid;gap:2px;padding:2px}.quick-list[hidden]{display:none}
+.quick-g{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);margin:10px 0 2px}
+.quick-u{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;border-radius:10px;padding:6px 8px;cursor:pointer;text-align:left;font-size:14px}
+.quick-u:hover,.quick-u:focus-visible{background:var(--paper)}.quick-u:disabled{opacity:.5}.quick-u .av{width:28px;height:28px;font-size:13px;flex:none}
+.quick-u>span:nth-child(2){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.quick-u small{color:var(--mute)}.quick-u>.ico{opacity:.4;flex:none}
+.quick-pw{font-size:12px;color:var(--mute);text-align:center;margin-top:8px}.quick-pw .btn-link{font-size:12px;padding:0}
 .feat{list-style:none;display:flex;gap:18px;margin-top:26px;flex-wrap:wrap}.feat li{display:flex;align-items:center;gap:10px;font-weight:600;font-size:13px;max-width:130px;line-height:1.2}.feat .hexi{width:44px;height:44px;flex:none}
 @media(max-width:600px){.leaf{border-radius:56px 12px 56px 12px;margin-left:12px}.login-top{padding:16px 20px}}
 
