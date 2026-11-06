@@ -4,6 +4,7 @@ import { $, $$, esc, svgi, hexi, wordmark, mo, reduced, toast, closeModal, drawH
 import { mountForest } from './scene.js';
 import { renderTecnico, syncUI } from './tecnico.js';
 import * as P from './painel.js';
+import { maquinas } from './maquinas.js';
 
 const app = $('#app');
 let cleanup = null, shellFor = null, me = null;
@@ -63,8 +64,8 @@ setInterval(() => { if (!document.hidden) pingServer(); }, 8000);
 // botão por perfil, sem nomes, que entra como o primeiro usuário ativo daquele perfil. Ele só aparece quando o servidor
 // informa demo (FENIX_DEMO=1 ou js/demo.js); para retirá-lo de vez, apague o bloco `opts.demo` abaixo.
 const DEMO_PERFIS = {
-  tecnico: ['Operacional', 'Preenche o ROI em campo e baixa o PDF do ROI que gerou.'],
-  gestao: ['Gestão', 'Vê todos os ROIs e LEIs, edita o LEI e o valida e assina.'],
+  tecnico: ['Operacional', 'Prepara máquinas na base, instala e preenche o ROI em campo.'],
+  gestao: ['Gestão', 'Valida os LEIs e designa técnicos para as máquinas disponíveis.'],
   projetos: ['Projetos', 'Acompanha ROIs e LEIs, baixa o LEI validado e as fotos para o cliente.'],
   adm: ['ADM', 'Vê todos os ROIs completos, com fotos e dados do equipamento.'],
   consulta: ['Consulta', 'Consulta clientes, locais e datas e baixa as fotos.'],
@@ -138,7 +139,7 @@ async function login() {
 }
 
 /* ---------------- Roteador ---------------- */
-const views = { '/tecnico': (el, u) => renderTecnico(el, u), '/painel': P.overview, '/laudos': P.laudos, '/lei': P.lei, '/projetos': P.projetos, '/fotos': P.fotos, '/usuarios': P.usuarios };
+const views = { '/tecnico': (el, u) => renderTecnico(el, u), '/painel': P.overview, '/laudos': P.laudos, '/lei': P.lei, '/projetos': P.projetos, '/fotos': P.fotos, '/usuarios': P.usuarios, '/maquinas': maquinas };
 
 async function route() {
   closeModal();
@@ -151,7 +152,7 @@ async function route() {
   if (!PERFIS[u.perfil].routes.includes(path)) { location.hash = PERFIS[u.perfil].nav[0][0]; return; }
   if (shellFor !== u.id || !$('#main')) await shell(u, path); else $$('header.site nav a').forEach(a => a.classList.toggle('act', a.getAttribute('href').split('/')[1] === path.split('/')[1]));
   const main = $('#main');
-  main.className = path === '/tecnico' ? 'phone' : '';
+  main.className = u.perfil === 'tecnico' ? 'phone' : '';
   main.onclick = main.oninput = main.onchange = null;
   main.innerHTML = '';
   try { cleanup = await views[path](main, u, arg); }

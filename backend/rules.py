@@ -53,6 +53,45 @@ def build_lei(checklist: dict, avaria: bool, obs: str) -> dict:
     return {"tec": fmt(tec), "est": fmt(est), "obs": "\n".join(notas) or "Sem ressalvas.", "termo": TERMO_PADRAO}
 
 
+# Checklist de preparação na base: ao concluir sem não conformidades, a máquina fica disponível para instalação.
+PREP = [("hw", "Instalação de hardware"), ("sw", "Instalação de software"), ("seg", "Instalação de módulos de segurança"),
+        ("modem", "Configuração de modem"), ("promo", "Tela/botão promocional"), ("adesiv", "Adesivação")]
+PREP_OPCIONAL = {"promo"}                                  # pode ser "não se aplica" (ok = None)
+PREP_FOTOS = [("mf", "Frontal (adesivada e ligada)"), ("me", "Lateral esquerda"), ("md", "Lateral direita")]
+PREP_SLOTS = [f"i_{k}" for k, _ in PREP] + [k for k, _ in PREP_FOTOS]
+M_DISPONIVEL, M_NAO_CONFORME, M_INSTALADA = "DISPONIVEL", "NAO_CONFORME", "INSTALADA"
+
+
+def validate_prep(d: dict, slots: set) -> str | None:
+    """Valida o checklist de preparação enviado pelo app. `slots`: fotos recebidas."""
+    if not str(d.get("serie") or "").strip():
+        return "Campo obrigatório ausente: nº de série"
+    if str(d.get("uf") or "").strip() not in UFS:
+        return "Campo obrigatório ausente: estado (UF) da base"
+    itens = d.get("itens") or {}
+    for k, nome in PREP:
+        v = itens.get(k)
+        if not isinstance(v, dict) or not (isinstance(v.get("ok"), bool) or (k in PREP_OPCIONAL and v.get("ok") is None and "ok" in v)):
+            return f"Checklist sem resposta: {nome}"
+        if v["ok"] is False and not str(v.get("obs", "")).strip():
+            return f"Observação obrigatória (não conforme): {nome}"
+        if v["ok"] is not None and f"i_{k}" not in slots:
+            return f"Foto obrigatória ausente: {nome}"
+    for k, nome in PREP_FOTOS:
+        if k not in slots:
+            return f"Foto obrigatória ausente: {nome}"
+    return None
+
+
+def prep_conforme(itens: dict) -> bool:
+    return all(itens[k]["ok"] is True or (k in PREP_OPCIONAL and itens[k]["ok"] is None) for k, _ in PREP)
+
+
+def prep_corrigidos(antes: dict, agora: dict) -> list:
+    """Itens que estavam não conformes na preparação anterior e agora não estão mais."""
+    return [k for k, _ in PREP if (antes.get(k) or {}).get("ok") is False and agora[k]["ok"] is not False]
+
+
 def visita(d: dict):
     """Máquinas de uma mesma visita (mesmo cliente): (grupo, (i, n)) ou (None, None) quando é uma máquina só."""
     g, m = str(d.get("grupo") or "").strip()[:64], d.get("maquina") or {}

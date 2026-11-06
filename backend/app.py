@@ -60,6 +60,7 @@ with app.app_context():
     if DEMO:
         seed.seed_users(_db)                              # também atualiza nome/UFs dos usuários de demonstração já existentes
         seed.seed_installations(_db, storage)
+        seed.seed_maquinas(_db, storage)
 
 
 # ------------------------------------------------------------------ segurança / helpers
@@ -307,6 +308,101 @@ def cms_lookup(serie):
     if not data:
         return jsonify(error="Nº de série não encontrado no CMS"), 404
     return jsonify(data)
+
+
+# ------------------------------------------------------------------ máquinas (preparação na base → disponível → designação → instalada)
+def maquina_visivel(m, u) -> bool:
+    """Técnico vê as máquinas dos seus estados (ou designadas a ele); Gestão, ADM e Projetos veem todas."""
+    if u["perfil"] != "tecnico":
+        return True
+    ufs = [x for x in (u["ufs"] or "").split(",") if x]
+    return m["designado_id"] == u["id"] or not ufs or m["uf"] in ufs
+
+
+def get_maquina_or_404(serie):
+    m = get_db().execute("SELECT * FROM maquinas WHERE serie=?", (serie.upper(),)).fetchone()
+    if not m or not maquina_visivel(m, g.user):
+        abort(404)
+    return m
+
+
+@app.get("/api/maquinas")
+@auth("tecnico", "gestao", "adm", "projetos")
+def list_maquinas():
+    db, u = get_db(), g.user
+    rows = db.execute("SELECT * FROM maquinas ORDER BY atualizado_em DESC LIMIT 5000").fetchall()
+    if u["perfil"] == "tecnico":                          # técnico: só o que ainda não foi instalado
+        rows = [m for m in rows if maquina_visivel(m, u) and m["status"] != rules.M_INSTALADA]
+    return jsonify([services.maquina_json(db, m) for m in rows])
+
+
+@app.get("/api/maquinas/<serie>")
+@auth("tecnico", "gestao", "adm", "projetos")
+def get_maquina(serie):
+    return jsonify(services.maquina_json(get_db(), get_maquina_or_404(serie), detail=True))
+
+
+@app.post("/api/maquinas/prep")
+@auth("tecnico")
+def post_prep():
+    """Checklist de preparação: multipart com `data` (JSON) e, por foto, `mark_<slot>` / `orig_<slot>`."""
+    try:
+        data = json.loads(request.form.get("data", ""))
+    except ValueError:
+        raise services.ApiError("JSON inválido em 'data'")
+    photos = {}
+    for slot in rules.PREP_SLOTS:
+        mk, o = request.files.get(f"mark_{slot}"), request.files.get(f"orig_{slot}")
+        if not mk:
+            continue
+        mb = mk.read()
+        if services.sniff_ext(mb) not in ("jpg", "png", "webp"):
+            raise services.ApiError(f"Imagem inválida: {slot}", 415)
+        ob = o.read() if o else None
+        if ob is not None and services.sniff_ext(ob) is None:
+            raise services.ApiError(f"Original inválido: {slot}", 415)
+        meta = (data.get("fotos") or {}).get(slot, {})
+        photos[slot] = {"mark": mb, "orig": ob, "ts": meta.get("ts"), "lat": meta.get("lat"), "lng": meta.get("lng")}
+    db = get_db()
+    serie, criado = services.create_prep(db, storage, g.user, data, photos, str(data.get("clientId") or "")[:64] or None)
+    m = db.execute("SELECT * FROM maquinas WHERE serie=?", (serie,)).fetchone()
+    return jsonify(services.maquina_json(db, m)), (201 if criado else 200)
+
+
+@app.post("/api/maquinas/<serie>/designar")
+@auth("gestao")
+def post_designar(serie):
+    db, m = get_db(), get_maquina_or_404(serie)
+    tid = (request.get_json(silent=True) or {}).get("tecnicoId")
+    tec = None
+    if tid:
+        tec = db.execute("SELECT id,nome,ufs FROM usuarios WHERE id=? AND perfil='tecnico' AND ativo=1", (str(tid),)).fetchone()
+        if not tec:
+            raise services.ApiError("Técnico não encontrado", 404)
+    services.designar(db, m, tec, g.user)
+    return jsonify(services.maquina_json(db, db.execute("SELECT * FROM maquinas WHERE serie=?", (m["serie"],)).fetchone()))
+
+
+@app.get("/api/maquinas/<serie>/prep/<int:pid>/foto/<slot>")
+@auth("tecnico", "gestao", "adm", "projetos")
+def prep_foto(serie, pid, slot):
+    m = get_maquina_or_404(serie)
+    r = get_db().execute("SELECT fotos FROM preparacoes WHERE id=? AND serie=?", (pid, m["serie"])).fetchone()
+    f = r and json.loads(r["fotos"]).get(slot)
+    if not f:
+        abort(404)
+    orig = request.args.get("v") == "orig" and f.get("orig")
+    p = storage.path(f["orig"] if orig else f["mark"])
+    return send_file(p, mimetype=services.MIME.get(p.suffix[1:], "application/octet-stream"), as_attachment=bool(orig),
+                     download_name=f"{m['serie']}-prep{pid}-{slot}{p.suffix}")
+
+
+@app.get("/api/tecnicos")
+@auth("gestao", "adm", "projetos")
+def tecnicos():
+    """Técnicos ativos com os estados de atuação (para designar instalações)."""
+    rows = get_db().execute("SELECT id,nome,perfil,ufs FROM usuarios WHERE perfil='tecnico' AND ativo=1 ORDER BY nome").fetchall()
+    return jsonify([user_json(u) for u in rows])
 
 
 @app.get("/api/usuarios")
