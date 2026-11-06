@@ -18,6 +18,7 @@ const load = () => api.get('/api/roi');                       // o servidor já 
 const getRoi = id => api.get('/api/roi/' + encodeURIComponent(id)).catch(e => { if (e.status === 404) return null; throw e; });
 const driveTxt = d => ({ ok: 'no Google Drive', pendente: 'envio ao Drive pendente', desativado: 'guardadas no servidor (Drive não configurado)' }[d?.status] || '');
 const STATUS = { AGUARDANDO_VALIDACAO: 'Aguardando validação', DISPONIVEL_PROJETOS: 'Disponível p/ Projetos' };
+const maqTxt = r => (r.maquina?.n > 1 ? ` · máquina ${r.maquina.i} de ${r.maquina.n}` : '');   // várias máquinas na mesma visita
 
 /* ------------------------- Filtros comuns ------------------------- */
 const CAT = {
@@ -79,7 +80,7 @@ function table(rs, u, empty = 'Nenhum laudo por aqui ainda. Conclua um ROI no ap
     <td class="ta-r"><button class="btn ghost sm" data-fotos="${esc(r.id)}">${svgi('camera', 14)} Fotos</button></td></tr>`).join('')}</tbody></table></div>`;
   const val = r => u.perfil === 'gestao' && r.lei.status !== 'DISPONIVEL_PROJETOS';
   return `<div class="tw"><table class="tbl"><thead><tr><th>ROI</th><th>Cliente / Ambiente</th><th>UF</th><th>Técnico</th><th>Concluído</th><th>NOK</th><th>Status</th><th></th></tr></thead><tbody>
-    ${rs.map(r => { const n = countNok(r); return `<tr><td><b>${r.id}</b></td><td>${esc(r.local.cliente)}<small>${esc(r.local.ambiente)}</small></td><td>${esc(r.local.uf || '—')}</td><td>${esc(r.tecnico)}</td><td>${fmtD(r.closedAt)}</td>
+    ${rs.map(r => { const n = countNok(r); return `<tr><td><b>${r.id}</b></td><td>${esc(r.local.cliente)}<small>${esc(r.local.ambiente)}${maqTxt(r)}</small></td><td>${esc(r.local.uf || '—')}</td><td>${esc(r.tecnico)}</td><td>${fmtD(r.closedAt)}</td>
     <td>${n ? chip(n, 'bad') : '<span class="mute">—</span>'}</td><td>${statusChip(r.lei)}</td>
     <td class="ta-r"><a class="btn ${val(r) ? 'lime' : 'ghost'} sm" href="#/lei/${r.id}">${val(r) ? 'Validar' : 'Abrir'}</a></td></tr>`; }).join('')}</tbody></table></div>`;
 }
@@ -148,7 +149,8 @@ const dt = t => (t ? new Date(t - new Date(t).getTimezoneOffset() * 60000) : nul
 const conf = v => (v == null ? '' : v ? 'Conforme' : 'Não conforme');
 const ROI_COLS = () => [
   ['ROI', r => r.id, 16], ['Status do LEI', r => STATUS[r.lei?.status], 22], ['Cliente', r => r.local.cliente, 26], ['Ambiente', r => r.local.ambiente, 24],
-  ['Endereço', r => r.local.endereco, 44], ['UF', r => r.local.uf, 6], ['Localização do equipamento', r => r.local.localizacao, 28], ['Técnico', r => r.tecnico, 18],
+  ['Endereço', r => r.local.endereco, 44], ['UF', r => r.local.uf, 6], ['Localização do equipamento', r => r.local.localizacao, 28],
+  ['Máquina da visita', r => (r.maquina?.n > 1 ? `${r.maquina.i} de ${r.maquina.n}` : ''), 12], ['Técnico', r => r.tecnico, 18],
   ['Início', r => dt(r.iniciadoEm), 17, 'd'], ['Conclusão', r => dt(r.closedAt), 17, 'd'], ['Sincronizado em', r => dt(r.syncedAt), 17, 'd'],
   ['Nº de série', r => r.equip.serie, 16], ['PIN', r => r.equip.pin, 10], ['APK', r => r.equip.apk, 8],
   ['Modem · operadora', r => r.equip.modem?.op, 12], ['Modem · modelo', r => r.equip.modem?.modelo, 18], ['Modem · IMEI', r => r.equip.modem?.imei, 18], ['Modem · N/S', r => r.equip.modem?.ns, 12],
@@ -290,7 +292,7 @@ export async function lei(el, u, id) {
   const L = r.lei, locked = L.status === 'DISPONIVEL_PROJETOS', canEdit = u.perfil === 'gestao' && !locked;
   const seg = (grp, i, it, bad) => `<div class="card chk"><b>${esc(it.t)}</b><div class="seg static ${it.ok ? 'ok' : 'nok'}" data-g="${grp}" data-i="${i}" ${canEdit ? '' : 'aria-disabled="true"'}><span class="thumb"></span><button type="button" data-v="ok">Conforme</button><button type="button" data-v="nok">${bad}</button></div><small class="hint">${esc(it.d)}</small></div>`;
   el.innerHTML = `<section class="wrap lei-wrap">
-    <div class="crumbs"><a href="#/laudos">${svgi('back', 16)} Laudos</a><span>${r.id}</span>${statusChip(L)}</div>
+    <div class="crumbs"><a href="#/laudos">${svgi('back', 16)} Laudos</a><span>${r.id}</span>${statusChip(L)}${r.maquina?.n > 1 ? chip(`Máquina ${r.maquina.i} de ${r.maquina.n} desta visita`) : ''}</div>
     <div class="lei-grid"><aside class="editor">
       <h2 class="h-lg">${canEdit ? 'Revisão da <span class="hl">Supervisão</span>' : 'Laudo <span class="hl">' + (locked ? 'validado' : 'em revisão') + '</span>'}</h2>
       <p class="hint">${canEdit ? 'Edite checklist, observações e o termo com base no seu entendimento e na análise das fotos. Dados do local vêm do ROI.' : locked ? `Validado por ${esc(L.validadoPor)} em ${fmtDT(L.validadoEm)}. Somente leitura.` : 'Somente a Supervisão Operacional edita este laudo.'}</p>
@@ -367,7 +369,7 @@ function viewer(r, start = 0) {
     <aside class="vw-side">
       <h4>${esc(r.id)}</h4>
       <dl class="kv sm"><dt>Cliente</dt><dd>${esc(r.local.cliente)}</dd><dt>Ambiente</dt><dd>${esc(r.local.ambiente)}</dd><dt>Localização</dt><dd>${esc(r.local.localizacao)}</dd>
-        <dt>Endereço</dt><dd>${esc(r.local.endereco)}</dd><dt>UF</dt><dd>${esc(r.local.uf || '—')}</dd><dt>Nº de série</dt><dd>${esc(r.equip.serie)}</dd><dt>Técnico</dt><dd>${esc(r.tecnico)}</dd><dt>Conclusão</dt><dd>${fmtDT(r.closedAt)}</dd></dl>
+        <dt>Endereço</dt><dd>${esc(r.local.endereco)}</dd><dt>UF</dt><dd>${esc(r.local.uf || '—')}</dd><dt>Nº de série</dt><dd>${esc(r.equip.serie)}</dd><dt>Técnico</dt><dd>${esc(r.tecnico)}</dd><dt>Conclusão</dt><dd>${fmtDT(r.closedAt)}</dd>${r.maquina?.n > 1 ? `<dt>Visita</dt><dd>Máquina ${r.maquina.i} de ${r.maquina.n}</dd>` : ''}</dl>
       <h5>Esta foto</h5><dl class="kv sm" id="vwm"></dl>
       <h5>Checklist do ROI</h5><ul class="vw-chk">${CHECK.map(x => { const v = r.checklist?.[x.k] || {}; return `<li class="${v.ok ? 'ok' : 'nok'}"><b>${v.ok ? 'OK' : 'NOK'}</b><span>${esc(x.t)}${v.obs ? `<small>${esc(v.obs)}</small>` : ''}</span></li>`; }).join('')}</ul>
       <h5>Avaria no transporte</h5><p>${r.avaria ? 'Sim' : 'Não'}</p>
@@ -380,7 +382,8 @@ function viewer(r, start = 0) {
     $('#vwi', dlg).innerHTML = `<img src="${esc(p.mark)}" alt="${esc(f.t)}" class="${zoom ? 'zoom' : ''}">`;
     $('#vwi', dlg).classList.toggle('zoom', zoom);
     $('#vwz', dlg).innerHTML = `${svgi('eye', 14)} ${zoom ? 'Ajustar à tela' : 'Tamanho real'}`;
-    $('#vwm', dlg).innerHTML = `<dt>Registrada em</dt><dd>${p.ts ? fmtDT(p.ts) : '—'}</dd><dt>GPS</dt><dd>${p.lat != null ? `${(+p.lat).toFixed(6)}, ${(+p.lng).toFixed(6)}` : 'indisponível'}</dd>`;
+    $('#vwm', dlg).innerHTML = `<dt>Registrada em</dt><dd>${p.ts ? fmtDT(p.ts) : '—'}</dd><dt>GPS</dt><dd>${p.lat != null ? `${(+p.lat).toFixed(6)}, ${(+p.lng).toFixed(6)}` : 'indisponível'}</dd>
+      <dt>Origem</dt><dd>${p.origem === 'galeria' ? 'Galeria do aparelho (data e GPS da própria foto)' : 'Câmera do app'}</dd>`;
     $$('.vw-nav', dlg).forEach(b => { b.hidden = list.length < 2; });
   }
   function go(d) { i = (i + d + list.length) % list.length; paint(); mo($('#vwi img', dlg), { opacity: [0.4, 1] }, { duration: 0.2 }); }

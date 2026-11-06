@@ -9,7 +9,7 @@ const USERS = [
   ['duf', 'Duarte', 'adm'], ['bia', 'Bianca', 'consulta'], ['car', 'Carlos (Téc.)', 'tecnico', 'SP,MG'], ['mar', 'Marcos (Téc.)', 'tecnico', 'MG'],
   ['joa', 'Joana (Téc.)', 'tecnico', 'PE,BA'], ['raf', 'Rafael (Téc.)', 'tecnico', 'BA,MA'],
 ].map(([id, nome, perfil, ufs = '']) => ({ id, nome, perfil, ufs: ufs ? ufs.split(',') : [], ativo: 1 }));
-const SEED_VERSION = 2;   // mudou o formato do seed: navegadores com dados antigos recomeçam do zero
+const SEED_VERSION = 3;   // mudou o formato do seed: navegadores com dados antigos recomeçam do zero
 const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI',
   'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'];
 
@@ -59,6 +59,12 @@ function buildLei(cl, avaria, obs) {
   if (avaria) notas.push('Avaria de transporte registrada (canhoto do frete com ressalva anexado).');
   if (obs && obs.trim()) notas.push(obs.trim());
   return { tec: fmt(tec), est: fmt(est), obs: notas.join('\n') || 'Sem ressalvas.', termo: TERMO_PADRAO };
+}
+
+/** Máquinas de uma mesma visita (rules.visita): { grupo, maquina: { i, n } } ou {} quando é uma máquina só. */
+function visita(d) {
+  const g = String(d.grupo || '').trim().slice(0, 64), i = parseInt(d.maquina?.i, 10), n = parseInt(d.maquina?.n, 10);
+  return g && i >= 1 && i <= n && n <= 50 ? { grupo: g, maquina: { i, n } } : {};
 }
 
 function validatePayload(d) {
@@ -145,7 +151,7 @@ async function seed() {
   const p = (n, w) => String(n).padStart(w, '0');
   const inst = [];
   const nome = id => USERS.find(u => u.id === id).nome;
-  const add = (n, tecId, cliente, ambiente, endereco, uf, localizacao, ago, { over = {}, avaria = false, obs = '', validado } = {}) => {
+  const add = (n, tecId, cliente, ambiente, endereco, uf, localizacao, ago, { over = {}, avaria = false, obs = '', validado, grupo } = {}) => {
     const cl = Object.fromEntries(CHECK_KEYS.map(k => [k, { ok: true, obs: '' }]));
     Object.assign(cl, over);
     const closed = Math.round(now - ago * H);
@@ -161,7 +167,7 @@ async function seed() {
         modem: { op: 'Vivo', modelo: 'Quectel EC25', imei: `86753004${p(n * 10007 % 1e7, 7)}`, ns: `MD-${70000 + n}` },
         chip: { op: 'Vivo', linha: `(11) 9${p(n * 30011 % 10000, 4)}-0000`, iccid: `895510${p(n * 99991 % 1e13, 13)}` } },
       checklist: cl, avaria, obs, aceite: { nome: `Responsável ${cliente.split(' ')[0]}`, doc: '000.000.000-00' },
-      sig: null, fotos, lei,
+      sig: null, fotos, lei, ...(grupo ? { grupo: grupo[0], maquina: { i: grupo[1], n: grupo[2] } } : {}),
     });
   };
   add(131, 'mar', 'Drogaria Central', 'Matriz', 'Av. Afonso Pena, 1500 — Belo Horizonte/MG', 'MG', 'Entrada principal', 52, { validado: ['her', 48] });
@@ -170,8 +176,11 @@ async function seed() {
   add(139, 'car', 'IMMU', 'Terminal 1', 'Terminal Rodoviário Tietê, Plataforma 3 — São Paulo/SP', 'SP', 'Entrada principal', 6, {
     over: { estrut: { ok: false, obs: 'Amassado na lateral direita, próximo à base.' }, adesiv: { ok: false, obs: 'Descolamento parcial da adesivação (frete).' } },
     avaria: true, obs: 'Necessária readesivação parcial.' });
+  // visita com 2 máquinas no mesmo cliente: um ROI/LEI por máquina, ligados pelo grupo
   add(140, 'tec1', 'Shopping Barra Sul', 'Piso L1 · Praça de alimentação', 'Av. das Américas, 4666 — Barra da Tijuca, Rio de Janeiro/RJ', 'RJ',
-    'Ao lado dos sanitários', 20, { validado: ['pat', 12] });
+    'Ao lado dos sanitários', 20, { validado: ['pat', 12], grupo: ['seed-visita-1', 1, 2] });
+  add(144, 'tec1', 'Shopping Barra Sul', 'Estacionamento G1', 'Av. das Américas, 4666 — Barra da Tijuca, Rio de Janeiro/RJ', 'RJ',
+    'Junto aos elevadores', 20, { grupo: ['seed-visita-1', 2, 2] });
   add(141, 'joa', 'Atacadão Recife', 'Loja Imbiribeira', 'Av. Mascarenhas de Morais, 5000 — Recife/PE', 'PE', 'Saída dos caixas', 9, {
     over: { conect: { ok: false, obs: 'Sinal 4G fraco no ponto; instalada antena externa provisória.' } } });
   add(142, 'raf', 'Hiper Ideal', 'Unidade Pituba', 'Av. Tancredo Neves, 1189 — Salvador/BA', 'BA', 'Hall de entrada', 40, { validado: ['rod', 36] });
@@ -192,7 +201,7 @@ async function roiJson(r, photos = true, u = null) {
   out.aceite.assinatura = await fileUrl(sig);
   if (photos) {
     out.fotos = {};
-    for (const [slot, f] of Object.entries(fotos)) out.fotos[slot] = { ts: f.ts, lat: f.lat, lng: f.lng, mark: await fileUrl(f.mark), origUrl: await fileUrl(f.orig) };
+    for (const [slot, f] of Object.entries(fotos)) out.fotos[slot] = { ts: f.ts, lat: f.lat, lng: f.lng, origem: f.origem || 'camera', mark: await fileUrl(f.mark), origUrl: await fileUrl(f.orig) };
   }
   return u?.perfil === 'consulta' ? consultaJson(out) : out;
 }
@@ -251,7 +260,8 @@ async function createInstallation(u, fd) {
     const orig = p.o ? `${base}/${slot}_orig.${await sniff(p.o)}` : null;
     if (orig) await files.put(orig, p.o);
     await files.put(`${base}/${slot}_marca.jpg`, p.m);
-    fotos[slot] = { mark: `${base}/${slot}_marca.jpg`, orig, ts: p.meta.ts ?? null, lat: p.meta.lat ?? null, lng: p.meta.lng ?? null };
+    fotos[slot] = { mark: `${base}/${slot}_marca.jpg`, orig, ts: p.meta.ts ?? null, lat: p.meta.lat ?? null, lng: p.meta.lng ?? null,
+      origem: p.meta.origem === 'galeria' ? 'galeria' : 'camera' };
   }
   const t = s => String(s ?? '').trim();
   const { local: L, equip: E, aceite: A } = data, mo = E.modem || {}, ch = E.chip || {};
@@ -263,7 +273,7 @@ async function createInstallation(u, fd) {
     equip: { serie: t(E.serie), pin: E.pin || '', apk: E.apk || '', modem: { op: mo.op || '', modelo: mo.modelo || '', imei: mo.imei || '', ns: mo.ns || '' },
       chip: { op: ch.op || '', linha: ch.linha || '', iccid: ch.iccid || '' } },
     checklist: cl, avaria, obs, aceite: { nome: t(A.nome), doc: t(A.doc) }, sig: `${base}/assinatura.png`, fotos,
-    lei: { status: AGUARDANDO, ...buildLei(cl, avaria, data.obs || ''), validadoPor: null, validadoEm: null, chave: null },
+    lei: { status: AGUARDANDO, ...buildLei(cl, avaria, data.obs || ''), validadoPor: null, validadoEm: null, chave: null }, ...visita(data),
   };
   st.inst.push(r);
   await persist();
