@@ -6,7 +6,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS usuarios(
   id TEXT PRIMARY KEY, nome TEXT NOT NULL,
   perfil TEXT NOT NULL CHECK(perfil IN ('tecnico','gestao','projetos','adm','consulta')),
-  senha_hash TEXT NOT NULL, ativo INTEGER NOT NULL DEFAULT 1);
+  senha_hash TEXT NOT NULL, ativo INTEGER NOT NULL DEFAULT 1, ufs TEXT NOT NULL DEFAULT '');
 
 CREATE TABLE IF NOT EXISTS instalacoes(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS instalacoes(
   client_uuid TEXT UNIQUE,
   tecnico_id TEXT NOT NULL REFERENCES usuarios(id),
   tecnico_nome TEXT NOT NULL,
-  cliente TEXT NOT NULL, ambiente TEXT NOT NULL, endereco TEXT NOT NULL, localizacao TEXT NOT NULL,
+  cliente TEXT NOT NULL, ambiente TEXT NOT NULL, endereco TEXT NOT NULL, localizacao TEXT NOT NULL, uf TEXT,
   iniciado_em INTEGER, encerrado_em INTEGER NOT NULL, sincronizado_em INTEGER NOT NULL,
   serie TEXT NOT NULL, pin TEXT, apk TEXT,
   modem_op TEXT, modem_modelo TEXT, modem_imei TEXT, modem_ns TEXT,
@@ -65,8 +65,15 @@ def close_db(_exc=None):
         con.close()
 
 
+# Colunas acrescentadas depois da primeira versão: bancos já criados recebem via ALTER TABLE.
+MIGRATIONS = [("usuarios", "ufs", "TEXT NOT NULL DEFAULT ''"), ("instalacoes", "uf", "TEXT")]
+
+
 def init_db(path):
     con = connect(path)
     con.executescript(SCHEMA)
+    for table, col, decl in MIGRATIONS:
+        if col not in [r["name"] for r in con.execute(f"PRAGMA table_info({table})")]:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     con.commit()
     con.close()

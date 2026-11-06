@@ -4,10 +4,14 @@
 
 const DEMO_PASSWORD = 'fenix123';
 const USERS = [
-  ['tec1', 'Técnico Demo', 'tecnico'], ['pat', 'Patrícia', 'gestao'], ['her', 'Herval', 'gestao'], ['rod', 'Rodrigo', 'gestao'],
+  ['tec1', 'André', 'tecnico', 'SP,RJ'], ['pat', 'Patrícia', 'gestao'], ['her', 'Herval', 'gestao'], ['rod', 'Rodrigo', 'gestao'],
   ['tha', 'Thais', 'projetos'], ['ana', 'Ana', 'projetos'], ['and', 'Anderson', 'adm'], ['cur', 'Cury', 'adm'],
-  ['duf', 'Duarte', 'adm'], ['bia', 'Bianca', 'consulta'], ['car', 'Carlos (Téc.)', 'tecnico'], ['mar', 'Marcos (Téc.)', 'tecnico'],
-].map(([id, nome, perfil]) => ({ id, nome, perfil, ativo: 1 }));
+  ['duf', 'Duarte', 'adm'], ['bia', 'Bianca', 'consulta'], ['car', 'Carlos (Téc.)', 'tecnico', 'SP,MG'], ['mar', 'Marcos (Téc.)', 'tecnico', 'MG'],
+  ['joa', 'Joana (Téc.)', 'tecnico', 'PE,BA'], ['raf', 'Rafael (Téc.)', 'tecnico', 'BA,MA'],
+].map(([id, nome, perfil, ufs = '']) => ({ id, nome, perfil, ufs: ufs ? ufs.split(',') : [], ativo: 1 }));
+const SEED_VERSION = 2;   // mudou o formato do seed: navegadores com dados antigos recomeçam do zero
+const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI',
+  'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'];
 
 const CHECK = [
   ['eletrica', 'Instalação Elétrica (Régua/Timer)'], ['acesso', 'Acessibilidade do Percurso'], ['conect', 'Conectividade (Sinal de Dados)'],
@@ -15,7 +19,8 @@ const CHECK = [
   ['adesiv', 'Integridade da Adesivação (visual)'], ['estrut', 'Estrutura (sem riscos/amassados)'],
 ];
 const CHECK_KEYS = CHECK.map(([k]) => k);
-const FOTO_SLOTS = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'], FOTO_EXTRA = 'fx', ALL_SLOTS = [...FOTO_SLOTS, FOTO_EXTRA];
+const FOTO_SLOTS = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'], FOTO_EXTRA = 'fx', AVARIA_SLOTS = [FOTO_EXTRA, 'fx2', 'fx3', 'fx4', 'fx5'];
+const ALL_SLOTS = [...FOTO_SLOTS, ...AVARIA_SLOTS];
 const AGUARDANDO = 'AGUARDANDO_VALIDACAO', DISPONIVEL = 'DISPONIVEL_PROJETOS';
 const TERMO_PADRAO = 'Este documento atesta a conformidade da instalação e da integridade da comunicação visual conforme o escopo do projeto. '
   + 'Ao validar este laudo, o cliente declara que o equipamento de série [Nº Série] foi entregue em perfeitas condições de uso, '
@@ -26,6 +31,10 @@ const CMS = {
     chip: { op: 'Vivo', linha: '(11) 91234-5678', iccid: '8955101234567890123' } },
   'RM-2026-0152': { pin: '551207', apk: '3.8.2', modem: { op: 'Claro', modelo: 'Teltonika RUT241', imei: '352093081452237', ns: 'MD-77188' },
     chip: { op: 'Claro', linha: '(11) 98765-4321', iccid: '8955201234567890456' } },
+  'RM-2026-0160': { pin: '613044', apk: '3.9.0', modem: { op: 'Vivo', modelo: 'Quectel EC25', imei: '867530041318842', ns: 'MD-77240' },
+    chip: { op: 'Vivo', linha: '(81) 99812-3344', iccid: '8955101234567890789' } },
+  'RM-2026-0163': { pin: '709381', apk: '3.9.0', modem: { op: 'Claro', modelo: 'Teltonika RUT241', imei: '352093081577104', ns: 'MD-77263' },
+    chip: { op: 'Claro', linha: '(71) 98455-1209', iccid: '8955201234567890912' } },
 };
 
 class ApiError extends Error { constructor(msg, status = 400) { super(msg); this.status = status; } }
@@ -54,6 +63,7 @@ function buildLei(cl, avaria, obs) {
 
 function validatePayload(d) {
   const txt = (...path) => { const v = path.reduce((a, p) => (a && typeof a === 'object' ? a[p] : undefined), d); return v == null ? '' : String(v).trim(); };
+  if (!UFS.includes(txt('local', 'uf'))) return 'Campo obrigatório ausente: estado (UF)';
   for (const [path, nome] of [[['local', 'cliente'], 'cliente'], [['local', 'ambiente'], 'ambiente'], [['local', 'endereco'], 'endereço'],
     [['local', 'localizacao'], 'localização'], [['equip', 'serie'], 'nº de série'], [['equip', 'pin'], 'PIN'], [['equip', 'apk'], 'APK'],
     [['equip', 'modem', 'op'], 'operadora do modem'], [['equip', 'chip', 'op'], 'operadora do chip'],
@@ -102,43 +112,71 @@ const files = {
   clear: () => tx('files', 'readwrite', s => s.clear()),
 };
 
-let S = null;   // { users, inst: [...] }
+let S = null;   // { v, users, inst: [...] }
 async function state() {
   if (!S) S = await tx('state', 'readonly', s => s.get('db'));
-  if (!S) { S = seed(); await persist(); }
+  if (!S || S.v !== SEED_VERSION) await reset();
   return S;
+}
+async function reset() {
+  await files.clear();
+  urls.forEach(u => URL.revokeObjectURL(u)); urls.clear();
+  S = await seed(); await persist();
 }
 const persist = () => tx('state', 'readwrite', s => s.put(S, 'db'));
 
 /* ---------------- Laudos de exemplo (backend/seed.py) ---------------- */
-function seed() {
+// Fotos ilustrativas: img/demo/<slot>.jpg (limpa) e <slot>_marca.jpg (com a faixa de marca d'água), guardadas uma vez no IndexedDB.
+async function seedPhotos() {
+  const out = {};
+  for (const slot of [...FOTO_SLOTS, 'fx', 'fx2']) {
+    try {
+      const [o, m] = await Promise.all([`img/demo/${slot}.jpg`, `img/demo/${slot}_marca.jpg`].map(u => fetch(u).then(r => r.ok ? r.blob() : null)));
+      if (!o || !m) continue;
+      await files.put(`seed/${slot}_orig.jpg`, o); await files.put(`seed/${slot}_marca.jpg`, m);
+      out[slot] = { orig: `seed/${slot}_orig.jpg`, mark: `seed/${slot}_marca.jpg` };
+    } catch { /* sem a foto de exemplo: o laudo fica sem ela */ }
+  }
+  return out;
+}
+async function seed() {
+  const photos = await seedPhotos();
   const H = 3600e3, now = Date.now(), y = new Date().getFullYear();
   const p = (n, w) => String(n).padStart(w, '0');
   const inst = [];
-  const add = (n, tecId, tecNome, cliente, ambiente, endereco, localizacao, ago, { over = {}, avaria = false, obs = '', validado } = {}) => {
+  const nome = id => USERS.find(u => u.id === id).nome;
+  const add = (n, tecId, cliente, ambiente, endereco, uf, localizacao, ago, { over = {}, avaria = false, obs = '', validado } = {}) => {
     const cl = Object.fromEntries(CHECK_KEYS.map(k => [k, { ok: true, obs: '' }]));
     Object.assign(cl, over);
     const closed = Math.round(now - ago * H);
     const lei = { status: AGUARDANDO, ...buildLei(cl, avaria, obs), validadoPor: null, validadoEm: null, chave: null };
-    if (validado) Object.assign(lei, { status: DISPONIVEL, validadoPor: validado[1], validadoEm: Math.round(now - validado[2] * H), chave: `FNX-${p(n, 4)}-A9F2-C7D1-B3E4` });
+    if (validado) Object.assign(lei, { status: DISPONIVEL, validadoPor: nome(validado[0]), validadoEm: Math.round(now - validado[1] * H), chave: `FNX-${p(n, 4)}-A9F2-C7D1-B3E4` });
+    const fotos = {};
+    [...FOTO_SLOTS, ...(avaria ? ['fx', 'fx2'] : [])].forEach((slot, i) => { if (photos[slot]) fotos[slot] = { ...photos[slot], ts: closed - 2000000 + i * 120000, lat: null, lng: null }; });
     inst.push({
-      id: `ROI-${y}-${p(n, 4)}`, clientId: `seed-${n}`, tecnico: tecNome, tecnicoId: tecId,
+      id: `ROI-${y}-${p(n, 4)}`, clientId: `seed-${n}`, tecnico: nome(tecId), tecnicoId: tecId,
       iniciadoEm: closed - 2400000, closedAt: closed, syncedAt: closed + 60000,
-      local: { cliente, ambiente, endereco, localizacao },
+      local: { cliente, ambiente, endereco, localizacao, uf },
       equip: { serie: `RM-${y}-${p(n, 4)}`, pin: `4${p(n * 7919 % 100000, 5)}`, apk: '3.8.2',
         modem: { op: 'Vivo', modelo: 'Quectel EC25', imei: `86753004${p(n * 10007 % 1e7, 7)}`, ns: `MD-${70000 + n}` },
         chip: { op: 'Vivo', linha: `(11) 9${p(n * 30011 % 10000, 4)}-0000`, iccid: `895510${p(n * 99991 % 1e13, 13)}` } },
       checklist: cl, avaria, obs, aceite: { nome: `Responsável ${cliente.split(' ')[0]}`, doc: '000.000.000-00' },
-      sig: null, fotos: {}, lei,
+      sig: null, fotos, lei,
     });
   };
-  add(131, 'mar', 'Marcos (Téc.)', 'Drogaria Central', 'Matriz', 'Av. Brasil, 4500 — Campinas/SP', 'Entrada principal', 52, { validado: ['her', 'Herval', 48] });
-  add(135, 'car', 'Carlos (Téc.)', 'Supermercado Bom Preço', 'Loja 12 · Hall', 'Rua das Acácias, 250 — Osasco/SP', 'Ao lado da saída', 30, { validado: ['pat', 'Patrícia', 26] });
-  add(138, 'car', 'Carlos (Téc.)', 'IMMU', 'Sede · Recepção', 'Av. Paulista, 1000 — Bela Vista, São Paulo/SP', 'Próximo aos caixas', 3);
-  add(139, 'mar', 'Marcos (Téc.)', 'IMMU', 'Terminal 1', 'Terminal Rodoviário Tietê, Plataforma 3 — São Paulo/SP', 'Entrada principal', 6, {
+  add(131, 'mar', 'Drogaria Central', 'Matriz', 'Av. Afonso Pena, 1500 — Belo Horizonte/MG', 'MG', 'Entrada principal', 52, { validado: ['her', 48] });
+  add(135, 'car', 'Supermercado Bom Preço', 'Loja 12 · Hall', 'Rua das Acácias, 250 — Osasco/SP', 'SP', 'Ao lado da saída', 30, { validado: ['pat', 26] });
+  add(138, 'car', 'IMMU', 'Sede · Recepção', 'Av. Paulista, 1000 — Bela Vista, São Paulo/SP', 'SP', 'Próximo aos caixas', 3);
+  add(139, 'car', 'IMMU', 'Terminal 1', 'Terminal Rodoviário Tietê, Plataforma 3 — São Paulo/SP', 'SP', 'Entrada principal', 6, {
     over: { estrut: { ok: false, obs: 'Amassado na lateral direita, próximo à base.' }, adesiv: { ok: false, obs: 'Descolamento parcial da adesivação (frete).' } },
     avaria: true, obs: 'Necessária readesivação parcial.' });
-  return { users: USERS, inst };
+  add(140, 'tec1', 'Shopping Barra Sul', 'Piso L1 · Praça de alimentação', 'Av. das Américas, 4666 — Barra da Tijuca, Rio de Janeiro/RJ', 'RJ',
+    'Ao lado dos sanitários', 20, { validado: ['pat', 12] });
+  add(141, 'joa', 'Atacadão Recife', 'Loja Imbiribeira', 'Av. Mascarenhas de Morais, 5000 — Recife/PE', 'PE', 'Saída dos caixas', 9, {
+    over: { conect: { ok: false, obs: 'Sinal 4G fraco no ponto; instalada antena externa provisória.' } } });
+  add(142, 'raf', 'Hiper Ideal', 'Unidade Pituba', 'Av. Tancredo Neves, 1189 — Salvador/BA', 'BA', 'Hall de entrada', 40, { validado: ['rod', 36] });
+  add(143, 'raf', 'Mateus Supermercados', 'Loja Holandeses', 'Av. dos Holandeses, 9 — São Luís/MA', 'MA', 'Próximo ao estacionamento', 2);
+  return { v: SEED_VERSION, users: USERS, inst };
 }
 
 /* ---------------- Serialização (services.roi_json): arquivos viram blob: URLs ---------------- */
@@ -148,7 +186,7 @@ async function fileUrl(key) {
   if (!urls.has(key)) { const b = await files.get(key); if (!b) return null; urls.set(key, URL.createObjectURL(b)); }
   return urls.get(key);
 }
-async function roiJson(r, photos = true) {
+async function roiJson(r, photos = true, u = null) {
   const { clientId, sig, fotos, ...out } = structuredClone(r);
   Object.assign(out, { sync: 'sincronizado', drive: { status: 'desativado', pasta: null } });
   out.aceite.assinatura = await fileUrl(sig);
@@ -156,13 +194,16 @@ async function roiJson(r, photos = true) {
     out.fotos = {};
     for (const [slot, f] of Object.entries(fotos)) out.fotos[slot] = { ts: f.ts, lat: f.lat, lng: f.lng, mark: await fileUrl(f.mark), origUrl: await fileUrl(f.orig) };
   }
-  return out;
+  return u?.perfil === 'consulta' ? consultaJson(out) : out;
 }
+/** Perfil Consulta (services.consulta_json): só cliente, localidade, máquina, datas e fotos. */
+const consultaJson = f => ({ id: f.id, iniciadoEm: f.iniciadoEm, closedAt: f.closedAt, local: f.local, equip: { serie: f.equip.serie },
+  lei: { status: f.lei.status }, ...(f.fotos ? { fotos: f.fotos } : {}) });
 
 /* ---------------- Sessão ---------------- */
 const SESSION = 'fenix.demo.uid';
 const sess = { get: () => { try { return localStorage.getItem(SESSION); } catch { return null; } }, set: v => { try { v ? localStorage.setItem(SESSION, v) : localStorage.removeItem(SESSION); } catch { } } };
-const pub = u => ({ id: u.id, nome: u.nome, perfil: u.perfil });
+const pub = u => ({ id: u.id, nome: u.nome, perfil: u.perfil, ufs: u.ufs || [] });
 async function current() { const id = sess.get(); return id ? (await state()).users.find(u => u.id === id && u.ativo) || null : null; }
 async function auth(...perfis) {
   const u = await current();
@@ -172,7 +213,7 @@ async function auth(...perfis) {
 }
 async function roiOr404(cod, u) {
   const r = (await state()).inst.find(x => x.id === cod);
-  if (!r || (u.perfil === 'tecnico' && r.tecnicoId !== u.id) || (u.perfil === 'projetos' && r.lei.status !== DISPONIVEL)) throw new ApiError('Não encontrado', 404);
+  if (!r || (u.perfil === 'tecnico' && r.tecnicoId !== u.id)) throw new ApiError('Não encontrado', 404);
   return r;
 }
 
@@ -186,6 +227,7 @@ async function createInstallation(u, fd) {
   if (dup) return [dup, true];                                     // idempotente: reenvio após queda não duplica
   const err = validatePayload(data);
   if (err) throw new ApiError(err, 422);
+  if (u.ufs?.length && !u.ufs.includes(String(data.local.uf).trim())) throw new ApiError('Estado (UF) fora da sua área de atuação', 422);
   const avaria = !!data.avaria;
   const photos = {};
   for (const slot of ALL_SLOTS) {
@@ -217,7 +259,7 @@ async function createInstallation(u, fd) {
   const obs = String(data.obs || '').slice(0, 5000);
   const r = {
     id: codigo, clientId: cid, tecnico: u.nome, tecnicoId: u.id, iniciadoEm: data.iniciadoEm ?? null, closedAt: Math.trunc(data.closedAt), syncedAt: Date.now(),
-    local: { cliente: t(L.cliente), ambiente: t(L.ambiente), endereco: t(L.endereco), localizacao: t(L.localizacao) },
+    local: { cliente: t(L.cliente), ambiente: t(L.ambiente), endereco: t(L.endereco), localizacao: t(L.localizacao), uf: t(L.uf) },
     equip: { serie: t(E.serie), pin: E.pin || '', apk: E.apk || '', modem: { op: mo.op || '', modelo: mo.modelo || '', imei: mo.imei || '', ns: mo.ns || '' },
       chip: { op: ch.op || '', linha: ch.linha || '', iccid: ch.iccid || '' } },
     checklist: cl, avaria, obs, aceite: { nome: t(A.nome), doc: t(A.doc) }, sig: `${base}/assinatura.png`, fotos,
@@ -253,12 +295,11 @@ async function route(method, path, body) {
   }
   if (M === 'POST logout') { sess.set(null); return { ok: true }; }
   if (M === 'POST demo' && seg[1] === 'reset') {
-    S = seed(); await persist(); await files.clear();
-    urls.forEach(u => URL.revokeObjectURL(u)); urls.clear(); sess.set(null);
+    await reset(); sess.set(null);
     return { ok: true };
   }
   if (M === 'GET me') return pub(await auth());
-  if (M === 'GET usuarios') { await auth('adm'); return (await state()).users.map(({ id, nome, perfil, ativo }) => ({ id, nome, perfil, ativo })); }
+  if (M === 'GET usuarios') { await auth('adm'); return (await state()).users.map(u => ({ ...pub(u), ativo: u.ativo })); }
   if (M === 'GET cms') {
     await auth('tecnico', 'adm');
     const c = CMS[(seg[1] || '').slice(0, 40).trim().toUpperCase()];
@@ -269,16 +310,16 @@ async function route(method, path, body) {
   if (seg[0] === 'roi') {
     if (method === 'GET' && seg.length === 1) {
       const u = await auth();
-      const rows = (await state()).inst.filter(r => u.perfil === 'tecnico' ? r.tecnicoId === u.id : u.perfil === 'projetos' ? r.lei.status === DISPONIVEL : true)
-        .sort((a, b) => b.closedAt - a.closedAt).slice(0, 500);
-      return Promise.all(rows.map(r => roiJson(r, false)));
+      const rows = (await state()).inst.filter(r => u.perfil !== 'tecnico' || r.tecnicoId === u.id)
+        .sort((a, b) => b.closedAt - a.closedAt).slice(0, 2000);
+      return Promise.all(rows.map(r => roiJson(r, false, u)));
     }
     if (method === 'POST' && seg.length === 1) {
       const u = await auth('tecnico');
       const [r, dup] = await createInstallation(u, body);
       return new Reply(await roiJson(r), dup ? 200 : 201);
     }
-    if (method === 'GET' && seg.length === 2) return roiJson(await roiOr404(seg[1], await auth()));
+    if (method === 'GET' && seg.length === 2) { const u = await auth(); return roiJson(await roiOr404(seg[1], u), true, u); }
     if (seg[2] === 'laudo') {
       const u = await auth('gestao'), r = await roiOr404(seg[1], u), l = r.lei;
       if (l.status === DISPONIVEL) throw new ApiError(seg[3] === 'validar' ? 'Laudo já validado' : 'Laudo já validado — não pode mais ser editado', 409);

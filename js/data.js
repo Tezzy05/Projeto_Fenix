@@ -4,10 +4,15 @@
 export const PERFIS = {
   tecnico:  { label: 'Operacional · Técnicos', nav: [['#/tecnico', 'Instalações']], routes: ['/tecnico'] },
   gestao:   { label: 'Gestão · Supervisão Operacional', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos']], routes: ['/painel', '/laudos', '/lei', '/fotos'] },
-  projetos: { label: 'Projetos · Relatórios de clientes', nav: [['#/painel', 'Visão geral'], ['#/projetos', 'Laudos disponíveis']], routes: ['/painel', '/projetos', '/fotos', '/lei'] },
-  adm:      { label: 'ADM', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos'], ['#/projetos', 'Projetos'], ['#/usuarios', 'Usuários']], routes: ['/painel', '/laudos', '/lei', '/projetos', '/fotos', '/usuarios'] },
-  consulta: { label: 'Consulta', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos']], routes: ['/painel', '/laudos', '/lei', '/fotos'] },
+  projetos: { label: 'Projetos · Relatórios de clientes', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos'], ['#/projetos', 'Laudos disponíveis'], ['#/fotos', 'Fotos']], routes: ['/painel', '/laudos', '/projetos', '/fotos', '/lei'] },
+  adm:      { label: 'ADM', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos'], ['#/projetos', 'Projetos'], ['#/fotos', 'Fotos'], ['#/usuarios', 'Usuários']], routes: ['/painel', '/laudos', '/lei', '/projetos', '/fotos', '/usuarios'] },
+  consulta: { label: 'Consulta', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Instalações'], ['#/fotos', 'Fotos']], routes: ['/painel', '/laudos', '/fotos'] },
 };
+/** Quem exporta relatórios em Excel (Consulta não). */
+export const EXPORTA = ['gestao', 'adm', 'projetos'];
+
+export const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI',
+  'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'];
 
 export const CHECK = [
   { k: 'eletrica', t: 'Instalação Elétrica (Régua/Timer)' },
@@ -29,10 +34,24 @@ export const FOTOS = [
   { k: 'f6', t: 'Vista de contexto / ambiente', s: 'Comprovação do recuo de 1,10 m' },
 ];
 export const FOTO_EXTRA = { k: 'fx', t: 'Canhoto do frete com ressalva manuscrita', s: 'Avaria de transporte' };
+/** Fotos de avaria: o canhoto (obrigatório) + até 4 fotos da avaria, adicionadas uma a uma. */
+export const AVARIA = [FOTO_EXTRA, ...[2, 3, 4, 5].map(n => ({ k: 'fx' + n, t: 'Foto da avaria', s: 'Detalhe da avaria' }))];
+/** Fotos de um ROI na ordem de exibição: as 6 obrigatórias e, se houver avaria, as de avaria que existem. */
+export const fotoList = r => [...FOTOS, ...(r.avaria ? AVARIA.filter((f, i) => i === 0 || r.fotos?.[f.k]) : [])];
+/** Nº de série de teste que o CMS de demonstração reconhece. */
+export const CMS_DEMO = ['RM-2026-0147', 'RM-2026-0152', 'RM-2026-0160', 'RM-2026-0163'];
 
 export const countNok = r => CHECK.filter(x => r.checklist?.[x.k]?.ok === false).length;
 export const uuid = () => crypto.randomUUID?.() ?? ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
 export const notify = () => window.dispatchEvent(new Event('fenix:data'));
+/** Carrega uma biblioteca de vendor/ só quando for usada (Excel e ZIP são grandes). */
+const libs = {};
+export const lib = (file, global) => libs[file] ??= new Promise((res, rej) => {
+  if (window[global]) return res(window[global]);
+  const s = document.createElement('script'); s.src = 'vendor/' + file;
+  s.onload = () => res(window[global]); s.onerror = () => { delete libs[file]; rej(new Error('Não foi possível carregar ' + file)); };
+  document.head.appendChild(s);
+});
 
 /* ---------- Cliente da API ---------- */
 // Sem backend (GitHub Pages ou ?demo): a API é atendida no próprio navegador por js/demo.js, com dados de exemplo.

@@ -65,9 +65,9 @@ setInterval(() => { if (!document.hidden) pingServer(); }, 8000);
 const DEMO_PERFIS = {
   tecnico: ['Operacional', 'Preenche o ROI em campo e baixa o PDF do ROI que gerou.'],
   gestao: ['Gestão', 'Vê todos os ROIs e LEIs, edita o LEI e o valida e assina.'],
-  projetos: ['Projetos', 'Baixa o LEI validado e o Check-in Fotográfico para o cliente.'],
+  projetos: ['Projetos', 'Acompanha ROIs e LEIs, baixa o LEI validado e as fotos para o cliente.'],
   adm: ['ADM', 'Vê todos os ROIs completos, com fotos e dados do equipamento.'],
-  consulta: ['Consulta', 'Somente leitura: visualiza ROIs e LEIs.'],
+  consulta: ['Consulta', 'Consulta clientes, locais e datas e baixa as fotos.'],
 };
 async function login() {
   shellFor = null;

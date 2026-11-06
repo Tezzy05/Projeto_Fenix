@@ -57,9 +57,9 @@ drive = make_drive()
 init_db(app.config["DB_PATH"])
 with app.app_context():
     _db = get_db()
-    if DEMO and not _db.execute("SELECT 1 FROM usuarios LIMIT 1").fetchone():
-        seed.seed_users(_db)
-        seed.seed_installations(_db)
+    if DEMO:
+        seed.seed_users(_db)                              # também atualiza nome/UFs dos usuários de demonstração já existentes
+        seed.seed_installations(_db, storage)
 
 
 # ------------------------------------------------------------------ segurança / helpers
@@ -92,8 +92,18 @@ def current_user():
     uid = session.get("uid")
     if not uid:
         return None
-    u = get_db().execute("SELECT id,nome,perfil FROM usuarios WHERE id=? AND ativo=1", (uid,)).fetchone()
+    u = get_db().execute("SELECT id,nome,perfil,ufs FROM usuarios WHERE id=? AND ativo=1", (uid,)).fetchone()
     return dict(u) if u else None
+
+
+def user_json(u) -> dict:
+    return {"id": u["id"], "nome": u["nome"], "perfil": u["perfil"], "ufs": [x for x in (u["ufs"] or "").split(",") if x]}
+
+
+def roi_out(db, r, photos=True) -> dict:
+    """Serializa conforme o perfil: Consulta recebe a versão sem detalhes técnicos."""
+    full = services.roi_json(db, r, photos)
+    return services.consulta_json(full) if g.user["perfil"] == "consulta" else full
 
 
 def auth(*perfis):
@@ -118,10 +128,6 @@ def get_roi_or_404(codigo):
     u = g.user
     if u["perfil"] == "tecnico" and r["tecnico_id"] != u["id"]:
         abort(404)                                        # não revela existência
-    if u["perfil"] == "projetos":
-        l = get_db().execute("SELECT status FROM laudos WHERE instalacao_id=?", (r["id"],)).fetchone()
-        if not l or l["status"] != rules.DISPONIVEL:
-            abort(404)
     return r
 
 
@@ -163,7 +169,7 @@ def login():
     session.clear()
     session.permanent = True
     session["uid"] = u["id"]
-    return jsonify(id=u["id"], nome=u["nome"], perfil=u["perfil"])
+    return jsonify(user_json(u))
 
 
 @app.post("/api/logout")
@@ -175,7 +181,7 @@ def logout():
 @app.get("/api/me")
 @auth()
 def me():
-    return jsonify(g.user)
+    return jsonify(user_json(g.user))
 
 
 # ------------------------------------------------------------------ ROI / laudos
@@ -186,16 +192,14 @@ def list_roi():
     sql, args = "SELECT i.* FROM instalacoes i JOIN laudos l ON l.instalacao_id=i.id", []
     if u["perfil"] == "tecnico":
         sql += " WHERE i.tecnico_id=?"; args.append(u["id"])
-    elif u["perfil"] == "projetos":
-        sql += " WHERE l.status=?"; args.append(rules.DISPONIVEL)
-    rows = db.execute(sql + " ORDER BY i.encerrado_em DESC LIMIT 500", args).fetchall()
-    return jsonify([services.roi_json(db, r, photos=False) for r in rows])
+    rows = db.execute(sql + " ORDER BY i.encerrado_em DESC LIMIT 2000", args).fetchall()
+    return jsonify([roi_out(db, r, photos=False) for r in rows])
 
 
 @app.get("/api/roi/<codigo>")
 @auth()
 def get_roi(codigo):
-    return jsonify(services.roi_json(get_db(), get_roi_or_404(codigo)))
+    return jsonify(roi_out(get_db(), get_roi_or_404(codigo)))
 
 
 @app.post("/api/roi")
@@ -284,6 +288,8 @@ def foto(codigo, slot):
 @app.get("/api/roi/<codigo>/assinatura")
 @auth()
 def assinatura(codigo):
+    if g.user["perfil"] == "consulta":
+        abort(404)
     r = get_roi_or_404(codigo)
     if not r["aceite_assinatura"]:
         abort(404)
@@ -305,7 +311,7 @@ def cms_lookup(serie):
 @app.get("/api/usuarios")
 @auth("adm")
 def usuarios():
-    return jsonify([dict(u) for u in get_db().execute("SELECT id,nome,perfil,ativo FROM usuarios ORDER BY rowid")])
+    return jsonify([{**user_json(u), "ativo": u["ativo"]} for u in get_db().execute("SELECT id,nome,perfil,ativo,ufs FROM usuarios ORDER BY rowid")])
 
 
 @app.post("/api/admin/drive/retry")
@@ -321,7 +327,7 @@ def drive_retry():
 
 
 # ------------------------------------------------------------------ front estático (lista branca: nunca expõe backend/ nem instance/)
-STATIC_DIRS = {"css", "js", "vendor"}
+STATIC_DIRS = {"css", "js", "vendor", "img"}
 STATIC_FILES = {"sw.js", "manifest.webmanifest", "icon.svg"}
 
 
@@ -348,6 +354,7 @@ def cli():
     ap.add_argument("--port", type=int, default=int(os.environ.get("FENIX_PORT", "5000")))
     ap.add_argument("--create-user", nargs=3, metavar=("ID", "NOME", "PERFIL"), help="cria usuário e pede a senha")
     ap.add_argument("--passwd", metavar="ID", help="redefine a senha de um usuário")
+    ap.add_argument("--ufs", metavar="UF,UF", default="", help="com --create-user: estados de atuação do técnico (ex.: SP,RJ)")
     a = ap.parse_args()
     if a.create_user or a.passwd:
         with app.app_context():
@@ -359,7 +366,11 @@ def cli():
                 uid, nome, perfil = a.create_user
                 if perfil not in rules.PERFIS:
                     raise SystemExit(f"Perfil inválido. Use: {', '.join(rules.PERFIS)}")
-                db.execute("INSERT INTO usuarios(id,nome,perfil,senha_hash) VALUES(?,?,?,?)", (uid, nome, perfil, generate_password_hash(pw)))
+                ufs = [x.strip().upper() for x in a.ufs.split(",") if x.strip()]
+                if any(x not in rules.UFS for x in ufs):
+                    raise SystemExit("UF inválida em --ufs")
+                db.execute("INSERT INTO usuarios(id,nome,perfil,senha_hash,ufs) VALUES(?,?,?,?,?)",
+                           (uid, nome, perfil, generate_password_hash(pw), ",".join(ufs)))
             else:
                 db.execute("UPDATE usuarios SET senha_hash=? WHERE id=?", (generate_password_hash(pw), a.passwd))
             db.commit()

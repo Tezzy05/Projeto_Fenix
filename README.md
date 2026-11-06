@@ -26,26 +26,40 @@ Entre com usuário e senha, ou abra o campo discreto **Acesso de demonstração*
 |---|---|---|
 | Operacional | `tec1` | Preenche o ROI em campo e baixa o PDF do ROI que gerou. |
 | Gestão | `pat` | Vê todos os ROIs e LEIs, edita o LEI pré-preenchido e o valida/assina. Depois da validação, nada mais pode ser editado. |
-| Projetos | `tha` | Baixa o PDF do LEI validado e o Check-in Fotográfico para o cliente. |
+| Projetos | `tha` | Vê todos os ROIs e LEIs com o status (sem editar), baixa o LEI validado, o Check-in Fotográfico e as fotos originais, e exporta relatórios. |
 | ADM | `and` | Vê todos os ROIs completos, com fotos e dados do equipamento. |
-| Consulta | `bia` | Somente leitura: visualiza ROIs e LEIs. |
+| Consulta | `bia` | Vê só cliente, localidade, máquina e datas (sem detalhes técnicos) e baixa as fotos originais. |
 
-Os outros usuários de exemplo (`car`, `mar`, `her`, `rod`, `ana`, `cur`, `duf`) continuam existindo e entram pelo formulário. Senha de todos: **`fenix123`**.
+Os outros usuários de exemplo continuam existindo e entram pelo formulário. Senha de todos: **`fenix123`**.
+
+| Técnico | Usuário | Estados (UF) |
+|---|---|---|
+| André | `tec1` | SP, RJ |
+| Carlos | `car` | SP, MG |
+| Marcos | `mar` | MG |
+| Joana | `joa` | PE, BA |
+| Rafael | `raf` | BA, MA |
+
+Gestão: `pat`, `her`, `rod`. Projetos: `tha`, `ana`. ADM: `and`, `cur`, `duf`. Consulta: `bia`.
+
+Números de série de teste do CMS (preenchem PIN, modem e chip): `RM-2026-0147`, `RM-2026-0152`, `RM-2026-0160`, `RM-2026-0163`.
 
 O campo só aparece em modo demonstração: no GitHub Pages e no servidor com `FENIX_DEMO=1` (o `.bat` liga). Em produção (sem `FENIX_DEMO`) a tela mostra só usuário e senha. Para retirar o campo de vez, apague o bloco `opts.demo` da função `login()` em `js/app.js`. No GitHub Pages, o link **Restaurar dados de exemplo** dentro do campo apaga o que foi testado naquele navegador e volta aos laudos iniciais.
 
 **Roteiro sugerido de apresentação**
-1. **Operacional**: preencha o ROI (botão `RM-2026-0147` preenche modem/chip via CMS), fotos, assinatura → concluir.
+1. **Operacional**: inicie um ROI, saia e inicie outro: os dois ficam em **Rascunhos**. Preencha um deles (escolha o estado; os botões de série preenchem modem/chip via CMS), fotos (com avaria, **+ Adicionar foto da avaria** até 5), assinatura → concluir. Em **Minhas instalações**, use a busca e os filtros.
 2. Ligue **Simular offline** (ou pare o servidor, na versão local): conclua outro ROI → fica na "fila local"; volte a conexão → envia sozinho.
-3. **Gestão**: abra o laudo, altere checklist/observação, **Validar e assinar**.
-4. **Projetos**: baixe o LEI, veja/baixe as fotos originais, monte o Check-in Fotográfico.
-5. **ADM**: usuários e matriz de permissões. **Consulta**: somente leitura.
+3. **Gestão**: na Visão geral, clique nos cards (Aguardando, Com não conformidades…) para filtrar a tabela; **Limpar filtro** volta. Em Laudos, busque e filtre por técnico, estado e período e use **Exportar relatório** (Excel de ROI ou LEI). Abra um laudo, veja as fotos em **tela cheia** ao lado dos dados do ROI, altere checklist/observação e **Validar e assinar**.
+4. **Projetos**: acompanhe todos os laudos (somente leitura), baixe o LEI e monte o Check-in Fotográfico. Em **Fotos**, escolha as fotos de uma instalação e baixe o .zip, ou baixe todas as fotos da lista filtrada.
+5. **ADM**: usuários (com os estados dos técnicos) e matriz de permissões. **Consulta**: instalações sem detalhes técnicos e download das fotos.
 
 ## Estrutura
 ```
 iniciar_servidor.bat      # atalho da demo
 index.html, css/, js/, vendor/, sw.js   # front (servido pelo Flask, só estas pastas — lista branca)
 js/demo.js                # API de demonstração no navegador (GitHub Pages / ?demo)
+img/demo/                 # fotos ilustrativas dos laudos de exemplo (limpa e com a faixa de marca d'água)
+vendor/exceljs.min.js, vendor/jszip.min.js   # relatório Excel e .zip de fotos (carregados só quando usados)
 backend/
   app.py        # rotas da API + entrega do front + CLI
   services.py   # gravar ROI (idempotente), serializar, validar LEI
@@ -62,7 +76,7 @@ backend/
 |---|---|---|
 | `POST /api/login`, `/api/logout`, `GET /api/me` | todos | sessão (cookie assinado, 30 dias) |
 | `POST /api/roi` | tecnico | sincroniza ROI (multipart: `data` JSON + `assinatura` + `orig_<slot>`/`mark_<slot>`). Idempotente por `clientId` |
-| `GET /api/roi`, `/api/roi/<cod>` | todos* | *técnico vê os seus; Projetos só laudos validados |
+| `GET /api/roi`, `/api/roi/<cod>` | todos* | *técnico vê os seus; Consulta recebe só cliente, localidade, máquina, datas e fotos |
 | `PUT /api/roi/<cod>/laudo` | gestao | edita checklist/obs/termo (bloqueado após validar) |
 | `POST /api/roi/<cod>/laudo/validar` | gestao | gera chave de autenticação → `DISPONIVEL_PROJETOS` |
 | `GET /api/roi/<cod>/foto/<slot>?v=marca\|orig`, `/assinatura` | conforme acesso | arquivos |
@@ -82,7 +96,8 @@ O que vale para a versão do GitHub Pages:
 1. Suba a pasta, crie o virtualenv e `pip install -r backend/requirements.txt` (+ `requirements-drive.txt` para o Drive).
 2. WSGI: `sys.path.insert(0, '/home/USUARIO/fenix/backend'); from app import app as application`
 3. Variáveis: **sem** `FENIX_DEMO`, `FENIX_SECRET=<aleatório longo>`, `FENIX_HTTPS=1`, `FENIX_DATA=/home/USUARIO/fenix_data`.
-4. Crie os usuários: `python backend/app.py --create-user pat "Patrícia" gestao` (pede a senha). Redefinir: `--passwd pat`.
+4. Crie os usuários: `python backend/app.py --create-user pat "Patrícia" gestao` (pede a senha). Técnicos com os estados de atuação: `--create-user and2 "André" tecnico --ufs SP,RJ` (sem `--ufs`, o técnico pode escolher qualquer estado). Redefinir senha: `--passwd pat`.
+   Bancos criados por versões anteriores recebem as colunas novas (estado do ROI e estados do técnico) automaticamente ao iniciar.
 5. HTTPS é obrigatório em produção (GPS, câmera e PWA exigem contexto seguro; PythonAnywhere já fornece).
 6. Limite de upload: `MAX_CONTENT_LENGTH` = 150 MB (7 originais + assinatura). Confirme o limite do plano.
 
