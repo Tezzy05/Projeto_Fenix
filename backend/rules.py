@@ -53,6 +53,16 @@ def build_lei(checklist: dict, avaria: bool, obs: str) -> dict:
     return {"tec": fmt(tec), "est": fmt(est), "obs": "\n".join(notas) or "Sem ressalvas.", "termo": TERMO_PADRAO}
 
 
+def visita(d: dict):
+    """Máquinas de uma mesma visita (mesmo cliente): (grupo, (i, n)) ou (None, None) quando é uma máquina só."""
+    g, m = str(d.get("grupo") or "").strip()[:64], d.get("maquina") or {}
+    try:
+        i, n = int(m.get("i")), int(m.get("n"))
+    except (TypeError, ValueError, AttributeError):
+        return None, None
+    return (g, (i, n)) if g and 1 <= i <= n <= 50 else (None, None)
+
+
 def validate_roi_payload(d: dict) -> str | None:
     """Valida o ROI enviado pelo app. Devolve mensagem de erro ou None."""
     def txt(*path):

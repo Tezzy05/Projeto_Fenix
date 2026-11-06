@@ -36,19 +36,19 @@ def seed_installations(db, storage):
     ok_all = lambda: {k: {"ok": True, "obs": ""} for k in rules.CHECK_KEYS}
     names = {u[0]: u[1] for u in USERS}
 
-    def add(n, tec_id, cliente, ambiente, end, uf, loc, ago, over_cl=None, avaria=False, obs="", validado=None):
+    def add(n, tec_id, cliente, ambiente, end, uf, loc, ago, over_cl=None, avaria=False, obs="", validado=None, grupo=None):
         cl = ok_all()
         cl.update(over_cl or {})
         closed = int(now - ago * H)
         codigo = f"ROI-{y}-{n:04d}"
         cur = db.execute(
             """INSERT INTO instalacoes(codigo,client_uuid,tecnico_id,tecnico_nome,cliente,ambiente,endereco,localizacao,uf,iniciado_em,encerrado_em,
-               sincronizado_em,serie,pin,apk,modem_op,modem_modelo,modem_imei,modem_ns,chip_op,chip_linha,chip_iccid,avaria,obs,aceite_nome,aceite_doc)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               sincronizado_em,serie,pin,apk,modem_op,modem_modelo,modem_imei,modem_ns,chip_op,chip_linha,chip_iccid,avaria,obs,aceite_nome,aceite_doc,
+               grupo,maquina_i,maquina_n) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (codigo, f"seed-{n}", tec_id, names[tec_id], cliente, ambiente, end, loc, uf, closed - 2400000, closed, closed + 60000,
              f"RM-{y}-{n:04d}", f"4{n * 7919 % 100000:05d}", "3.8.2", "Vivo", "Quectel EC25", f"86753004{n * 10007 % 10**7:07d}", f"MD-{70000 + n}",
              "Vivo", f"(11) 9{n * 30011 % 10000:04d}-0000", f"895510{n * 99991 % 10**13:013d}", int(avaria), obs,
-             f"Responsável {cliente.split()[0]}", "000.000.000-00"))
+             f"Responsável {cliente.split()[0]}", "000.000.000-00", *(grupo or (None, None, None))))
         iid = cur.lastrowid
         for k in rules.CHECK_KEYS:
             db.execute("INSERT INTO checklist VALUES(?,?,?,?)", (iid, k, int(cl[k]["ok"]), cl[k]["obs"]))
@@ -76,8 +76,11 @@ def seed_installations(db, storage):
         over_cl={"estrut": {"ok": False, "obs": "Amassado na lateral direita, próximo à base."},
                  "adesiv": {"ok": False, "obs": "Descolamento parcial da adesivação (frete)."}},
         avaria=True, obs="Necessária readesivação parcial.")
+    # visita com 2 máquinas no mesmo cliente: um ROI/LEI por máquina, ligados pelo grupo
     add(140, "tec1", "Shopping Barra Sul", "Piso L1 · Praça de alimentação", "Av. das Américas, 4666 — Barra da Tijuca, Rio de Janeiro/RJ", "RJ",
-        "Ao lado dos sanitários", 20, validado=("pat", 12))
+        "Ao lado dos sanitários", 20, validado=("pat", 12), grupo=("seed-visita-1", 1, 2))
+    add(144, "tec1", "Shopping Barra Sul", "Estacionamento G1", "Av. das Américas, 4666 — Barra da Tijuca, Rio de Janeiro/RJ", "RJ",
+        "Junto aos elevadores", 20, grupo=("seed-visita-1", 2, 2))
     add(141, "joa", "Atacadão Recife", "Loja Imbiribeira", "Av. Mascarenhas de Morais, 5000 — Recife/PE", "PE", "Saída dos caixas", 9,
         over_cl={"conect": {"ok": False, "obs": "Sinal 4G fraco no ponto; instalada antena externa provisória."}})
     add(142, "raf", "Hiper Ideal", "Unidade Pituba", "Av. Tancredo Neves, 1189 — Salvador/BA", "BA", "Hall de entrada", 40, validado=("rod", 36))

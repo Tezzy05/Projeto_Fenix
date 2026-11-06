@@ -26,8 +26,8 @@ export const CHECK = [
 ];
 
 export const FOTOS = [
-  { k: 'f1', t: 'Vista frontal no galpão', s: 'Pré-embalagem / embarque na base' },
-  { k: 'f2', t: 'Equipamento embarcado / protegido', s: 'Validação logística' },
+  { k: 'f1', t: 'Vista frontal no galpão', s: 'Pré-instalação: máquina pronta para ir ao cliente' },
+  { k: 'f2', t: 'Chegada ao cliente', s: 'Máquina íntegra ao chegar, antes de instalar' },
   { k: 'f3', t: 'Check-in estético · Vista frontal', s: 'Ligada e com APK' },
   { k: 'f4', t: 'Check-in estético · Lateral esquerda', s: '' },
   { k: 'f5', t: 'Check-in estético · Lateral direita', s: '' },
@@ -131,13 +131,13 @@ export async function syncAll(onStage) {
       const fd = new FormData();
       const fotos = {};
       for (const [k, p] of Object.entries(r.fotos || {})) {
-        fotos[k] = { ts: p.ts, lat: p.lat, lng: p.lng };
+        fotos[k] = { ts: p.ts, lat: p.lat, lng: p.lng, origem: p.origem || 'camera' };
         fd.append(`mark_${k}`, dataUrlToBlob(p.mark), `${k}.jpg`);
         if (p.orig) fd.append(`orig_${k}`, p.orig, p.orig.name || `${k}.jpg`);
       }
       if (r.aceite?.assinatura) fd.append('assinatura', dataUrlToBlob(r.aceite.assinatura), 'assinatura.png');
       fd.append('data', JSON.stringify({ clientId: r.id, iniciadoEm: r.iniciadoEm, closedAt: r.closedAt, local: r.local, equip: r.equip, checklist: r.checklist,
-        avaria: r.avaria, obs: r.obs, aceite: { nome: r.aceite?.nome, doc: r.aceite?.doc }, fotos }));
+        avaria: r.avaria, obs: r.obs, aceite: { nome: r.aceite?.nome, doc: r.aceite?.doc }, fotos, grupo: r.grupo || null, maquina: r.maquina || null }));
       onStage?.('fotos', r);
       try {
         const res = await api.form('/api/roi', fd);

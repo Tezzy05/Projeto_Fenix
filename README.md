@@ -47,9 +47,13 @@ Números de série de teste do CMS (preenchem PIN, modem e chip): `RM-2026-0147`
 O campo só aparece em modo demonstração: no GitHub Pages e no servidor com `FENIX_DEMO=1` (o `.bat` liga). Em produção (sem `FENIX_DEMO`) a tela mostra só usuário e senha. Para retirar o campo de vez, apague o bloco `opts.demo` da função `login()` em `js/app.js`. No GitHub Pages, o link **Restaurar dados de exemplo** dentro do campo apaga o que foi testado naquele navegador e volta aos laudos iniciais.
 
 **Roteiro sugerido de apresentação**
-1. **Operacional**: inicie um ROI, saia e inicie outro: os dois ficam em **Rascunhos**. Preencha um deles (escolha o estado; os botões de série preenchem modem/chip via CMS), fotos (com avaria, **+ Adicionar foto da avaria** até 5), assinatura → concluir. Em **Minhas instalações**, use a busca e os filtros.
+1. **Operacional**: inicie um ROI, saia e inicie outro: os dois ficam em **Rascunhos**. Em um deles:
+   - **Cliente** (uma vez por visita): cliente, endereço e estado.
+   - **Máquina**: *Galpão e chegada* (foto 1 da máquina no galpão, pela câmera ou da **galeria** — a marca usa a data e o GPS da própria foto; foto 2 na chegada ao cliente) → local (ambiente e localização) → equipamento (os botões de série preenchem modem/chip via CMS) → checklist → fotos (com avaria, **+ Adicionar foto da avaria** até 5) → aceite com a assinatura do responsável por aquela máquina.
+   - **Resumo da visita**: **+ Adicionar outra máquina neste cliente** repete só os passos da máquina. **Concluir** gera um ROI por máquina.
+   Em **Minhas instalações**, use a busca e os filtros.
 2. Ligue **Simular offline** (ou pare o servidor, na versão local): conclua outro ROI → fica na "fila local"; volte a conexão → envia sozinho.
-3. **Gestão**: na Visão geral, clique nos cards (Aguardando, Com não conformidades…) para filtrar a tabela; **Limpar filtro** volta. Em Laudos, busque e filtre por técnico, estado e período e use **Exportar relatório** (Excel de ROI ou LEI). Abra um laudo, veja as fotos em **tela cheia** ao lado dos dados do ROI, altere checklist/observação e **Validar e assinar**.
+3. **Gestão**: os ROIs de uma mesma visita aparecem separados, com "máquina 1 de 2" (exemplo: Shopping Barra Sul). Na Visão geral, clique nos cards (Aguardando, Com não conformidades…) para filtrar a tabela; **Limpar filtro** volta. Em Laudos, busque e filtre por técnico, estado e período e use **Exportar relatório** (Excel de ROI ou LEI). Abra um laudo, veja as fotos em **tela cheia** ao lado dos dados do ROI, altere checklist/observação e **Validar e assinar**.
 4. **Projetos**: acompanhe todos os laudos (somente leitura), baixe o LEI e monte o Check-in Fotográfico. Em **Fotos**, escolha as fotos de uma instalação e baixe o .zip, ou baixe todas as fotos da lista filtrada.
 5. **ADM**: usuários (com os estados dos técnicos) e matriz de permissões. **Consulta**: instalações sem detalhes técnicos e download das fotos.
 

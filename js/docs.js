@@ -44,7 +44,7 @@ export function roiHTML(r) {
   const e = r.equip, l = r.local, m = e.modem || {}, c = e.chip || {};
   const photos = fotoList(r).filter(f => r.fotos?.[f.k]?.mark);
   return `<article class="paper roi">
-    <header class="ph">${wordmark()}<div><h1>Relatório Operacional de Instalação (ROI)</h1><p>Documento interno · ${esc(r.codigo || (r.sync === 'pendente' ? 'pendente de sincronização' : r.id))}</p></div></header>
+    <header class="ph">${wordmark()}<div><h1>Relatório Operacional de Instalação (ROI)</h1><p>Documento interno · ${esc(r.codigo || (r.sync === 'pendente' ? 'pendente de sincronização' : r.id))}${r.maquina?.n > 1 ? ` · máquina ${r.maquina.i} de ${r.maquina.n} desta visita` : ''}</p></div></header>
     <h3><span class="n">1</span> Identificação do local e responsáveis</h3>
     <dl class="kv"><dt>Data/Hora</dt><dd>${fmtDT(r.closedAt)}</dd><dt>Cliente</dt><dd>${esc(l.cliente)}</dd><dt>Ambiente</dt><dd>${esc(l.ambiente)}</dd>
     <dt>Endereço</dt><dd>${esc(l.endereco)}</dd><dt>Estado (UF)</dt><dd>${esc(l.uf || '—')}</dd><dt>Localização</dt><dd>${esc(l.localizacao)}</dd><dt>Técnico</dt><dd>${esc(r.tecnico)}</dd></dl>

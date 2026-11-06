@@ -62,6 +62,7 @@ def create_installation(db, storage, user, data: dict, photos: dict, signature: 
 
     loc, eq, cl = data["local"], data["equip"], data["checklist"]
     modem, chip, ac = eq.get("modem", {}), eq.get("chip", {}), data["aceite"]
+    grupo, maq = rules.visita(data)
     written, ts = [], now_ms()
     try:
         db.execute("BEGIN IMMEDIATE")
@@ -73,12 +74,12 @@ def create_installation(db, storage, user, data: dict, photos: dict, signature: 
         cur = db.execute(
             """INSERT INTO instalacoes(codigo,client_uuid,tecnico_id,tecnico_nome,cliente,ambiente,endereco,localizacao,uf,iniciado_em,encerrado_em,
                sincronizado_em,serie,pin,apk,modem_op,modem_modelo,modem_imei,modem_ns,chip_op,chip_linha,chip_iccid,avaria,obs,
-               aceite_nome,aceite_doc,aceite_assinatura) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               aceite_nome,aceite_doc,aceite_assinatura,grupo,maquina_i,maquina_n) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (codigo, client_uuid, user["id"], user["nome"], loc["cliente"].strip(), loc["ambiente"].strip(), loc["endereco"].strip(),
              loc["localizacao"].strip(), loc["uf"].strip(), data.get("iniciadoEm"), int(data["closedAt"]), ts, eq["serie"].strip(), eq.get("pin", ""), eq.get("apk", ""),
              modem.get("op", ""), modem.get("modelo", ""), modem.get("imei", ""), modem.get("ns", ""),
              chip.get("op", ""), chip.get("linha", ""), chip.get("iccid", ""), int(avaria), str(data.get("obs", ""))[:5000],
-             ac["nome"].strip(), ac["doc"].strip(), sig_rel))
+             ac["nome"].strip(), ac["doc"].strip(), sig_rel, grupo, maq and maq[0], maq and maq[1]))
         iid = cur.lastrowid
         for k in rules.CHECK_KEYS:
             db.execute("INSERT INTO checklist VALUES(?,?,?,?)", (iid, k, int(cl[k]["ok"]), str(cl[k].get("obs", ""))[:2000]))
@@ -90,8 +91,8 @@ def create_installation(db, storage, user, data: dict, photos: dict, signature: 
                 ext = sniff_ext(p["orig"]) or "jpg"
                 orig_rel = storage.save(f"{base}/{slot}_orig.{ext}", p["orig"])
             mark_rel = storage.save(f"{base}/{slot}_marca.jpg", p["mark"])
-            db.execute("INSERT INTO fotos(instalacao_id,slot,arquivo_orig,arquivo_marca,ts,lat,lng) VALUES(?,?,?,?,?,?,?)",
-                       (iid, slot, orig_rel, mark_rel, p.get("ts"), p.get("lat"), p.get("lng")))
+            db.execute("INSERT INTO fotos(instalacao_id,slot,arquivo_orig,arquivo_marca,ts,lat,lng,origem) VALUES(?,?,?,?,?,?,?,?)",
+                       (iid, slot, orig_rel, mark_rel, p.get("ts"), p.get("lat"), p.get("lng"), p.get("origem")))
         lei = rules.build_lei({k: {"ok": bool(cl[k]["ok"]), "obs": cl[k].get("obs", "")} for k in rules.CHECK_KEYS}, avaria, data.get("obs", ""))
         db.execute("INSERT INTO laudos(instalacao_id,status,tec,est,obs,termo) VALUES(?,?,?,?,?,?)",
                    (iid, rules.AGUARDANDO, json.dumps(lei["tec"]), json.dumps(lei["est"]), lei["obs"], lei["termo"]))
@@ -139,12 +140,14 @@ def roi_json(db, r, photos=True) -> dict:
         "aceite": {"nome": r["aceite_nome"], "doc": r["aceite_doc"], "assinatura": f"/api/roi/{cod}/assinatura" if r["aceite_assinatura"] else None},
         "drive": {"status": r["drive_status"], "pasta": r["drive_pasta"]},
     }
+    if r["grupo"]:
+        out["grupo"], out["maquina"] = r["grupo"], {"i": r["maquina_i"], "n": r["maquina_n"]}
     l = db.execute("SELECT * FROM laudos WHERE instalacao_id=?", (r["id"],)).fetchone()
     if l:
         out["lei"] = {"status": l["status"], "tec": json.loads(l["tec"]), "est": json.loads(l["est"]), "obs": l["obs"], "termo": l["termo"],
                       "validadoPor": l["validado_por"], "validadoEm": l["validado_em"], "chave": l["chave"]}
     if photos:
-        out["fotos"] = {f["slot"]: {"ts": f["ts"], "lat": f["lat"], "lng": f["lng"],
+        out["fotos"] = {f["slot"]: {"ts": f["ts"], "lat": f["lat"], "lng": f["lng"], "origem": f["origem"] or "camera",
                                     "mark": f"/api/roi/{cod}/foto/{f['slot']}?v=marca",
                                     "origUrl": f"/api/roi/{cod}/foto/{f['slot']}?v=orig" if f["arquivo_orig"] else None}
                         for f in db.execute("SELECT * FROM fotos WHERE instalacao_id=?", (r["id"],))}

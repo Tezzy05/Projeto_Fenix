@@ -222,7 +222,8 @@ def post_roi():
         if ob is not None and services.sniff_ext(ob) is None:
             raise services.ApiError(f"Original inválido: {slot}", 415)
         meta = (data.get("fotos") or {}).get(slot, {})
-        photos[slot] = {"mark": mb, "orig": ob, "ts": meta.get("ts"), "lat": meta.get("lat"), "lng": meta.get("lng")}
+        photos[slot] = {"mark": mb, "orig": ob, "ts": meta.get("ts"), "lat": meta.get("lat"), "lng": meta.get("lng"),
+                        "origem": "galeria" if meta.get("origem") == "galeria" else "camera"}
     sig = request.files.get("assinatura")
     db = get_db()
     iid, codigo, dup = services.create_installation(db, storage, g.user, data, photos, sig.read() if sig else None,

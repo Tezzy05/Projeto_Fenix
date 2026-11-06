@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS instalacoes(
   chip_op TEXT, chip_linha TEXT, chip_iccid TEXT,
   avaria INTEGER NOT NULL DEFAULT 0, obs TEXT NOT NULL DEFAULT '',
   aceite_nome TEXT, aceite_doc TEXT, aceite_assinatura TEXT,
-  drive_pasta TEXT, drive_status TEXT NOT NULL DEFAULT 'desativado');
+  drive_pasta TEXT, drive_status TEXT NOT NULL DEFAULT 'desativado',
+  grupo TEXT, maquina_i INTEGER, maquina_n INTEGER);
 CREATE INDEX IF NOT EXISTS ix_inst_tecnico ON instalacoes(tecnico_id);
 
 CREATE TABLE IF NOT EXISTS checklist(
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS checklist(
 CREATE TABLE IF NOT EXISTS fotos(
   instalacao_id INTEGER NOT NULL REFERENCES instalacoes(id) ON DELETE CASCADE,
   slot TEXT NOT NULL, arquivo_orig TEXT, arquivo_marca TEXT,
-  ts INTEGER, lat REAL, lng REAL, drive_file_id TEXT,
+  ts INTEGER, lat REAL, lng REAL, drive_file_id TEXT, origem TEXT,
   PRIMARY KEY(instalacao_id, slot));
 
 CREATE TABLE IF NOT EXISTS laudos(
@@ -66,7 +67,9 @@ def close_db(_exc=None):
 
 
 # Colunas acrescentadas depois da primeira versão: bancos já criados recebem via ALTER TABLE.
-MIGRATIONS = [("usuarios", "ufs", "TEXT NOT NULL DEFAULT ''"), ("instalacoes", "uf", "TEXT")]
+MIGRATIONS = [("usuarios", "ufs", "TEXT NOT NULL DEFAULT ''"), ("instalacoes", "uf", "TEXT"),
+              ("instalacoes", "grupo", "TEXT"), ("instalacoes", "maquina_i", "INTEGER"), ("instalacoes", "maquina_n", "INTEGER"),
+              ("fotos", "origem", "TEXT")]
 
 
 def init_db(path):
