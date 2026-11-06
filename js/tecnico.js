@@ -27,9 +27,21 @@ const myUfs = () => user.ufs?.length ? user.ufs : UFS;   // sem UFs cadastradas:
 const val = p => (p.startsWith('m.') ? getPath(M, p.slice(2)) : getPath(D, p));
 const setVal = (p, v) => (p.startsWith('m.') ? setPath(M, p.slice(2), v) : setPath(D, p, v));
 
+/** Rascunho de ROI já com o estado e o equipamento de uma máquina disponível (lista "Máquinas"). Devolve o id. */
+export async function draftFromMachine(u, m) {
+  const d = newDraft(u);
+  d.local.uf = m.uf; d.maquinaRef = m.serie;
+  Object.assign(d.maquinas[0].equip, { serie: m.serie, pin: m.pin || '' });
+  await db.put(d);
+  return d.id;
+}
+const OPEN = 'fenix.abrirRascunho';   // aberto pela tela de máquinas: entra direto no wizard
+
 export async function renderTecnico(el, u) {
   root = el; user = u; mode = 'home'; D = M = null;
-  await home();
+  let open = null; try { open = sessionStorage.getItem(OPEN); sessionStorage.removeItem(OPEN); } catch { }
+  if (open) { await startWizard(open); toast('Máquina carregada: preencha o cliente e siga os passos'); }
+  else await home();
   root.onclick = onClick; root.oninput = onInput; root.onchange = onChange;
   const onData = () => { if (mode === 'home') home(false); else if (mode === 'done') refreshDone(); };
   window.addEventListener('fenix:data', onData);
@@ -45,8 +57,8 @@ const draftInfo = r => {
 async function home(animate = true) {
   mode = 'home'; clearInterval(clock);
   const all = await db.all();
-  const drafts = all.filter(r => r.draft && r.tecnicoId === user.id).sort((a, b) => b.iniciadoEm - a.iniciadoEm);
-  const mine = all.filter(r => !r.draft && r.tecnicoId === user.id);
+  const drafts = all.filter(r => r.draft && !r.kind && r.tecnicoId === user.id).sort((a, b) => b.iniciadoEm - a.iniciadoEm);
+  const mine = all.filter(r => !r.draft && !r.kind && r.tecnicoId === user.id);   // kind 'prep': checklist de preparação (tela Máquinas)
   const pend = mine.filter(r => r.sync === 'pendente' && !r.syncError).length;
   const rej = mine.filter(r => r.syncError);
   root.innerHTML = `<section class="phone-home">
@@ -54,6 +66,7 @@ async function home(animate = true) {
     <h1 class="h-xl">Nova <span class="hl">instalação</span></h1>
     <p class="lead">Preencha o ROI mesmo sem sinal. Tudo fica salvo neste aparelho até a sincronização. Várias máquinas no mesmo cliente? Cadastre o cliente uma vez e adicione as máquinas.</p>
     <button class="btn lime big" data-act="new">${svgi('leaf', 22)} Iniciar ROI</button>
+    <a class="pend-card" href="#/maquinas" id="pendCard" hidden></a>
     ${drafts.length ? `<h2 class="h-md">Rascunhos <small class="mute">${drafts.length}</small></h2><div class="list">${drafts.map(r => `<div class="li"><div><b>${esc(r.local?.cliente || 'Cliente não informado')}</b>
       <span>Iniciado em ${fmtDT(r.iniciadoEm)} · ${esc(draftInfo(r))}</span></div>
       <div class="li-r"><button class="btn dark sm" data-act="open" data-id="${esc(r.id)}">Continuar</button><button class="icon-btn" data-act="discard" data-id="${esc(r.id)}" aria-label="Descartar rascunho">${svgi('x', 18)}</button></div></div>`).join('')}</div>` : ''}
@@ -73,11 +86,23 @@ async function home(animate = true) {
     <div class="list" id="mineList"></div>
   </section>`;
   drawMine(mine);
+  pendencias();
   if (animate) { drawHex(root); mo($$('.phone-home > *', root), { opacity: [0, 1], y: [16, 0] }, { duration: 0.45, delay: window.Motion?.stagger(0.06) }); window.gsap?.fromTo('.phone-home .hl', { '--w': '0%' }, { '--w': '100%', duration: 0.8, delay: 0.25, ease: 'power3.out' }); }
+}
+/** Cartão "Pendências de instalação": máquinas que a Gestão designou a este técnico. */
+async function pendencias() {
+  let ms;
+  try { ms = await api.get('/api/maquinas'); } catch { try { ms = JSON.parse(localStorage.getItem('fenix.maquinas.' + user.id)); } catch { } }
+  const n = (ms || []).filter(m => m.status === 'DISPONIVEL' && m.designado?.id === user.id).length, c = $('#pendCard', root);
+  if (!c || !ms) return;
+  c.hidden = false;
+  c.innerHTML = `${hexi('box')}<span><b>${n ? `${n} instalaç${n > 1 ? 'ões pendentes' : 'ão pendente'}` : 'Nenhuma instalação designada a você'}</b>
+    <small>${n ? 'Designadas pela Gestão · toque para ver as máquinas' : 'Veja as máquinas disponíveis no seu estado'}</small></span>${svgi('next', 18)}`;
+  c.classList.toggle('has', !!n);
 }
 const dayStart = d => new Date(d + 'T00:00').getTime();
 async function drawMine(mine) {
-  mine ??= (await db.all()).filter(r => !r.draft && r.tecnicoId === user.id);
+  mine ??= (await db.all()).filter(r => !r.draft && !r.kind && r.tecnicoId === user.id);
   const q = F.q.trim().toLowerCase();
   const st = r => r.syncError ? 'recusado' : r.sync;
   const list = mine.filter(r => (!q || [r.local?.cliente, r.local?.ambiente, r.equip?.serie, r.codigo].some(v => String(v || '').toLowerCase().includes(q)))
@@ -303,7 +328,7 @@ async function lookupCMS() {
 
 /* Fotos */
 let gps = null, gpsAt = 0;
-function warmGPS() { getGPS(); }
+export function warmGPS() { getGPS(); }
 function getGPS() {
   if (gps && Date.now() - gpsAt < 30000) return Promise.resolve(gps);
   return new Promise(res => {
@@ -344,7 +369,7 @@ function tiff(b, t) {
   return out;
 }
 /** Marca d'água com data/hora, GPS e legenda. Câmera: agora e GPS do aparelho. Galeria: data e GPS da própria foto. */
-async function watermark(file, label, origem) {
+export async function watermark(file, label, origem) {
   const meta = origem === 'galeria' ? await exif(file) : null;
   const [bmp, g] = await Promise.all([bitmap(file), meta ? (meta.lat != null ? { lat: meta.lat, lng: meta.lng } : null) : getGPS()]);
   const W0 = bmp.naturalWidth || bmp.width, H0 = bmp.naturalHeight || bmp.height;

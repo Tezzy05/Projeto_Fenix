@@ -97,6 +97,9 @@ def create_installation(db, storage, user, data: dict, photos: dict, signature: 
         db.execute("INSERT INTO laudos(instalacao_id,status,tec,est,obs,termo) VALUES(?,?,?,?,?,?)",
                    (iid, rules.AGUARDANDO, json.dumps(lei["tec"]), json.dumps(lei["est"]), lei["obs"], lei["termo"]))
         log_event(db, iid, user["id"], "ROI_SINCRONIZADO", codigo)
+        # máquina preparada na base com este nº de série: sai da lista de disponíveis
+        db.execute("UPDATE maquinas SET status=?, instalada_roi=?, instalada_em=?, atualizado_em=? WHERE serie=? AND status!=?",
+                   (rules.M_INSTALADA, codigo, int(data["closedAt"]), ts, eq["serie"].strip().upper(), rules.M_INSTALADA))
         db.commit()
         return iid, codigo, False
     except Exception:
@@ -175,3 +178,89 @@ def validate_lei(db, r, user) -> str:
     log_event(db, r["id"], user["id"], "LEI_VALIDADO", chave)
     db.commit()
     return chave
+
+
+# ------------------------------------------------------------------ máquinas: preparação na base e designação
+def create_prep(db, storage, user, data: dict, photos: dict, client_uuid: str | None):
+    """Grava o checklist de preparação. Idempotente por client_uuid. Devolve (serie, criado: bool)."""
+    if client_uuid:
+        ex = db.execute("SELECT serie FROM preparacoes WHERE client_uuid=?", (client_uuid,)).fetchone()
+        if ex:
+            return ex["serie"], False
+    err = rules.validate_prep(data, set(photos))
+    if err:
+        raise ApiError(err, 422)
+    serie, uf = data["serie"].strip().upper()[:40], data["uf"].strip()
+    ufs = [x for x in (user.get("ufs") or "").split(",") if x]
+    if ufs and uf not in ufs:
+        raise ApiError("Estado (UF) fora da sua área de atuação", 422)
+    m = db.execute("SELECT * FROM maquinas WHERE serie=?", (serie,)).fetchone()
+    if m and m["status"] == rules.M_INSTALADA:
+        raise ApiError("Esta máquina já foi instalada", 409)
+    itens = {k: {"ok": data["itens"][k]["ok"], "obs": str(data["itens"][k].get("obs", ""))[:2000]} for k, _ in rules.PREP}
+    prev = db.execute("SELECT itens FROM preparacoes WHERE serie=? ORDER BY id DESC LIMIT 1", (serie,)).fetchone()
+    corr = rules.prep_corrigidos(json.loads(prev["itens"]), itens) if prev else []
+    conforme, ts, written = rules.prep_conforme(itens), now_ms(), []
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        if not m:
+            db.execute("INSERT INTO maquinas(serie,pin,uf,status,criado_em,atualizado_em) VALUES(?,?,?,?,?,?)",
+                       (serie, "", uf, rules.M_NAO_CONFORME, ts, ts))
+        pid = db.execute("INSERT INTO preparacoes(client_uuid,serie,tecnico_id,tecnico_nome,uf,em,itens,conforme,corrigidos) VALUES(?,?,?,?,?,?,?,?,?)",
+                         (client_uuid, serie, user["id"], user["nome"], uf, ts, json.dumps(itens), int(conforme), json.dumps(corr))).lastrowid
+        base, fotos = f"prep/{pid}", {}
+        written.append(base)
+        for slot, p in photos.items():
+            orig = storage.save(f"{base}/{slot}_orig.{sniff_ext(p['orig']) or 'jpg'}", p["orig"]) if p.get("orig") else None
+            fotos[slot] = {"mark": storage.save(f"{base}/{slot}_marca.jpg", p["mark"]), "orig": orig, "ts": p.get("ts"), "lat": p.get("lat"), "lng": p.get("lng")}
+        db.execute("UPDATE preparacoes SET fotos=? WHERE id=?", (json.dumps(fotos), pid))
+        db.execute("UPDATE maquinas SET pin=?, uf=?, status=?, ultima_prep=?, atualizado_em=? WHERE serie=?",
+                   (str(data.get("pin") or "")[:20], uf, rules.M_DISPONIVEL if conforme else rules.M_NAO_CONFORME, pid, ts, serie))
+        log_event(db, None, user["id"], "PREPARACAO", f"{serie} · {'conforme' if conforme else 'não conforme'}")
+        db.commit()
+        return serie, True
+    except Exception:
+        db.rollback()
+        for d in written:
+            storage.delete_tree(d)
+        raise
+
+
+def prep_json(r, serie, photos=True) -> dict:
+    out = {"id": r["id"], "em": r["em"], "tecnico": r["tecnico_nome"], "tecnicoId": r["tecnico_id"], "uf": r["uf"], "conforme": bool(r["conforme"]),
+           "itens": json.loads(r["itens"]), "corrigidos": json.loads(r["corrigidos"])}
+    if photos:
+        out["fotos"] = {slot: {"ts": f["ts"], "lat": f["lat"], "lng": f["lng"], "mark": f"/api/maquinas/{serie}/prep/{r['id']}/foto/{slot}?v=marca",
+                               "origUrl": f"/api/maquinas/{serie}/prep/{r['id']}/foto/{slot}?v=orig" if f.get("orig") else None}
+                        for slot, f in json.loads(r["fotos"]).items()}
+    return out
+
+
+def maquina_json(db, m, detail=False) -> dict:
+    out = {"serie": m["serie"], "pin": m["pin"], "uf": m["uf"], "status": m["status"], "criadoEm": m["criado_em"], "atualizadoEm": m["atualizado_em"],
+           "designado": {"id": m["designado_id"], "nome": m["designado_nome"], "por": m["designado_por"], "em": m["designado_em"]} if m["designado_id"] else None,
+           "instalada": None}
+    if m["instalada_roi"]:
+        i = db.execute("SELECT cliente, ambiente, tecnico_nome FROM instalacoes WHERE codigo=?", (m["instalada_roi"],)).fetchone()
+        out["instalada"] = {"roi": m["instalada_roi"], "em": m["instalada_em"], "cliente": i and i["cliente"], "ambiente": i and i["ambiente"], "tecnico": i and i["tecnico_nome"]}
+    preps = db.execute("SELECT * FROM preparacoes WHERE serie=? ORDER BY id DESC", (m["serie"],)).fetchall()
+    out["nPreps"] = len(preps)
+    out["ultimaPrep"] = prep_json(preps[0], m["serie"], photos=False) if preps else None
+    if detail:
+        out["preps"] = [prep_json(r, m["serie"]) for r in preps]
+    return out
+
+
+def designar(db, m, tecnico, por) -> None:
+    """Designa (ou retira, com tecnico=None) o técnico responsável pela instalação."""
+    if m["status"] != rules.M_DISPONIVEL:
+        raise ApiError("Só máquinas disponíveis para instalação podem ser designadas", 409)
+    if tecnico:
+        ufs = [x for x in (tecnico["ufs"] or "").split(",") if x]
+        if ufs and m["uf"] not in ufs:
+            raise ApiError(f"{tecnico['nome']} não atua em {m['uf']}", 422)
+    ts = now_ms()
+    db.execute("UPDATE maquinas SET designado_id=?, designado_nome=?, designado_por=?, designado_em=?, atualizado_em=? WHERE serie=?",
+               (tecnico and tecnico["id"], tecnico and tecnico["nome"], tecnico and por["nome"], tecnico and ts, ts, m["serie"]))
+    log_event(db, None, por["id"], "DESIGNACAO", f"{m['serie']} → {tecnico['nome'] if tecnico else 'sem técnico'}")
+    db.commit()

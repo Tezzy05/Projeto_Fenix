@@ -1,6 +1,12 @@
 # Projeto Fênix — Retorna Machine
 
-Fluxo **ROI → LEI → Check-in Fotográfico**: front mobile-first offline-first + backend Flask.
+Fluxo **preparação na base → máquina disponível → designação → ROI → LEI → Check-in Fotográfico**: front mobile-first offline-first + backend Flask.
+
+## Processo
+1. **Preparação na base (técnico):** checklist com 6 itens, cada um conforme / não conforme e com foto (hardware, software, módulos de segurança, modem, tela/botão promocional — opcional — e adesivação), mais 3 fotos da máquina adesivada e ligada. Sem não conformidades, a máquina fica **disponível para instalação**; com alguma, fica **não conforme** até um novo checklist. O histórico guarda todas as tentativas e o que foi corrigido.
+2. **Designação (Gestão):** visão nacional das máquinas; a Gestão designa o técnico responsável (só técnicos que atuam no estado da base), troca ou retira.
+3. **Instalação (técnico):** em **Máquinas**, o técnico vê as disponíveis dos seus estados, com as designadas a ele no topo (*Pendências de instalação*), e inicia o ROI já com a série, o PIN e o estado. Ao sincronizar o ROI, a máquina passa a **instalada**.
+4. **Laudo (Gestão)** e **relatórios (Projetos)**, como antes.
 
 ## Como abrir
 
@@ -56,13 +62,15 @@ O campo só aparece em modo demonstração: no GitHub Pages e no servidor com `F
 3. **Gestão**: os ROIs de uma mesma visita aparecem separados, com "máquina 1 de 2" (exemplo: Shopping Barra Sul). Na Visão geral, clique nos cards (Aguardando, Com não conformidades…) para filtrar a tabela; **Limpar filtro** volta. Em Laudos, busque e filtre por técnico, estado e período e use **Exportar relatório** (Excel de ROI ou LEI). Abra um laudo, veja as fotos em **tela cheia** ao lado dos dados do ROI, altere checklist/observação e **Validar e assinar**.
 4. **Projetos**: acompanhe todos os laudos (somente leitura), baixe o LEI e monte o Check-in Fotográfico. Em **Fotos**, escolha as fotos de uma instalação e baixe o .zip, ou baixe todas as fotos da lista filtrada.
 5. **ADM**: usuários (com os estados dos técnicos) e matriz de permissões. **Consulta**: instalações sem detalhes técnicos e download das fotos.
+6. **Máquinas** — **Operacional** (André, SP e RJ): a `RM-…-0147` está em *Pendências de instalação*; **Iniciar instalação** abre o ROI já preenchido. A `RM-…-0171` está não conforme: **Refazer checklist** mostra o problema anterior e, ao concluir, registra a correção. **Checklist de preparação (base)** cadastra uma máquina nova. **Gestão**: em **Máquinas**, os cards e os estados filtram; **Designar** lista só os técnicos do estado; **Abrir** mostra o histórico de checklists com fotos; **Exportar relatório** gera o Excel. **Projetos** vê tudo e exporta, sem designar.
 
 ## Estrutura
 ```
 iniciar_servidor.bat      # atalho da demo
 index.html, css/, js/, vendor/, sw.js   # front (servido pelo Flask, só estas pastas — lista branca)
 js/demo.js                # API de demonstração no navegador (GitHub Pages / ?demo)
-img/demo/                 # fotos ilustrativas dos laudos de exemplo (limpa e com a faixa de marca d'água)
+js/maquinas.js            # máquinas: checklist de preparação, disponíveis, designação e histórico
+img/demo/                 # fotos ilustrativas dos laudos de exemplo (limpa e com a faixa de marca d'água); prep/: do checklist de preparação
 vendor/exceljs.min.js, vendor/jszip.min.js   # relatório Excel e .zip de fotos (carregados só quando usados)
 backend/
   app.py        # rotas da API + entrega do front + CLI
@@ -85,6 +93,11 @@ backend/
 | `POST /api/roi/<cod>/laudo/validar` | gestao | gera chave de autenticação → `DISPONIVEL_PROJETOS` |
 | `GET /api/roi/<cod>/foto/<slot>?v=marca\|orig`, `/assinatura` | conforme acesso | arquivos |
 | `GET /api/cms/<serie>` | tecnico, adm | autopreenchimento (demo) |
+| `GET /api/maquinas`, `/api/maquinas/<serie>` | tecnico*, gestao, adm, projetos | *técnico: máquinas dos seus estados ou designadas a ele, ainda não instaladas. O detalhe traz o histórico de checklists |
+| `POST /api/maquinas/prep` | tecnico | checklist de preparação (multipart: `data` JSON + `mark_<slot>`/`orig_<slot>`). Idempotente por `clientId` |
+| `POST /api/maquinas/<serie>/designar` | gestao | `{tecnicoId}` designa; `null` retira. Só máquinas disponíveis e técnicos do estado |
+| `GET /api/maquinas/<serie>/prep/<id>/foto/<slot>?v=marca\|orig` | conforme acesso | fotos do checklist |
+| `GET /api/tecnicos` | gestao, adm, projetos | técnicos com os estados de atuação |
 | `GET /api/usuarios` | adm | lista |
 | `POST /api/admin/drive/retry` | adm | reenvia ao Drive o que falhou |
 

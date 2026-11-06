@@ -41,6 +41,20 @@ CREATE TABLE IF NOT EXISTS laudos(
   status TEXT NOT NULL, tec TEXT NOT NULL, est TEXT NOT NULL, obs TEXT NOT NULL, termo TEXT NOT NULL,
   validado_por_id TEXT, validado_por TEXT, validado_em INTEGER, chave TEXT);
 
+CREATE TABLE IF NOT EXISTS maquinas(
+  serie TEXT PRIMARY KEY, pin TEXT, uf TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('DISPONIVEL','NAO_CONFORME','INSTALADA')),
+  designado_id TEXT REFERENCES usuarios(id), designado_nome TEXT, designado_por TEXT, designado_em INTEGER,
+  ultima_prep INTEGER, criado_em INTEGER NOT NULL, atualizado_em INTEGER NOT NULL,
+  instalada_roi TEXT, instalada_em INTEGER);
+CREATE INDEX IF NOT EXISTS ix_maq_uf ON maquinas(uf);
+
+CREATE TABLE IF NOT EXISTS preparacoes(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, client_uuid TEXT UNIQUE, serie TEXT NOT NULL REFERENCES maquinas(serie),
+  tecnico_id TEXT NOT NULL, tecnico_nome TEXT NOT NULL, uf TEXT NOT NULL, em INTEGER NOT NULL,
+  itens TEXT NOT NULL, conforme INTEGER NOT NULL, corrigidos TEXT NOT NULL DEFAULT '[]', fotos TEXT NOT NULL DEFAULT '{}');
+CREATE INDEX IF NOT EXISTS ix_prep_serie ON preparacoes(serie);
+
 CREATE TABLE IF NOT EXISTS eventos(
   id INTEGER PRIMARY KEY AUTOINCREMENT, instalacao_id INTEGER, usuario_id TEXT,
   acao TEXT NOT NULL, detalhe TEXT, em INTEGER NOT NULL);

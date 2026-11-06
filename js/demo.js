@@ -9,7 +9,7 @@ const USERS = [
   ['duf', 'Duarte', 'adm'], ['bia', 'Bianca', 'consulta'], ['car', 'Carlos (Téc.)', 'tecnico', 'SP,MG'], ['mar', 'Marcos (Téc.)', 'tecnico', 'MG'],
   ['joa', 'Joana (Téc.)', 'tecnico', 'PE,BA'], ['raf', 'Rafael (Téc.)', 'tecnico', 'BA,MA'],
 ].map(([id, nome, perfil, ufs = '']) => ({ id, nome, perfil, ufs: ufs ? ufs.split(',') : [], ativo: 1 }));
-const SEED_VERSION = 3;   // mudou o formato do seed: navegadores com dados antigos recomeçam do zero
+const SEED_VERSION = 4;   // mudou o formato do seed: navegadores com dados antigos recomeçam do zero
 const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI',
   'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'];
 
@@ -36,6 +36,27 @@ const CMS = {
   'RM-2026-0163': { pin: '709381', apk: '3.9.0', modem: { op: 'Claro', modelo: 'Teltonika RUT241', imei: '352093081577104', ns: 'MD-77263' },
     chip: { op: 'Claro', linha: '(71) 98455-1209', iccid: '8955201234567890912' } },
 };
+
+// Checklist de preparação na base (backend/rules.py: PREP)
+const PREP = ['hw', 'sw', 'seg', 'modem', 'promo', 'adesiv'], PREP_NOMES = ['Instalação de hardware', 'Instalação de software', 'Instalação de módulos de segurança',
+  'Configuração de modem', 'Tela/botão promocional', 'Adesivação'], PREP_OPCIONAL = ['promo'];
+const PREP_FOTOS = [['mf', 'Frontal (adesivada e ligada)'], ['me', 'Lateral esquerda'], ['md', 'Lateral direita']];
+const PREP_SLOTS = [...PREP.map(k => 'i_' + k), ...PREP_FOTOS.map(([k]) => k)];
+const M_DISPONIVEL = 'DISPONIVEL', M_NAO_CONFORME = 'NAO_CONFORME', M_INSTALADA = 'INSTALADA';
+function validatePrep(d, slots) {
+  if (!String(d.serie || '').trim()) return 'Campo obrigatório ausente: nº de série';
+  if (!UFS.includes(String(d.uf || '').trim())) return 'Campo obrigatório ausente: estado (UF) da base';
+  for (const [i, k] of PREP.entries()) {
+    const v = d.itens?.[k];
+    if (!v || !(typeof v.ok === 'boolean' || (PREP_OPCIONAL.includes(k) && v.ok === null))) return `Checklist sem resposta: ${PREP_NOMES[i]}`;
+    if (v.ok === false && !String(v.obs || '').trim()) return `Observação obrigatória (não conforme): ${PREP_NOMES[i]}`;
+    if (v.ok !== null && !slots.includes('i_' + k)) return `Foto obrigatória ausente: ${PREP_NOMES[i]}`;
+  }
+  for (const [k, nome] of PREP_FOTOS) if (!slots.includes(k)) return `Foto obrigatória ausente: ${nome}`;
+  return null;
+}
+const prepConforme = itens => PREP.every(k => itens[k].ok === true || (PREP_OPCIONAL.includes(k) && itens[k].ok === null));
+const prepCorrigidos = (antes, agora) => PREP.filter(k => antes?.[k]?.ok === false && agora[k].ok !== false);
 
 class ApiError extends Error { constructor(msg, status = 400) { super(msg); this.status = status; } }
 class Reply { constructor(body, status) { this.body = body; this.status = status; } }   // resposta com status ≠ 200
@@ -185,7 +206,44 @@ async function seed() {
     over: { conect: { ok: false, obs: 'Sinal 4G fraco no ponto; instalada antena externa provisória.' } } });
   add(142, 'raf', 'Hiper Ideal', 'Unidade Pituba', 'Av. Tancredo Neves, 1189 — Salvador/BA', 'BA', 'Hall de entrada', 40, { validado: ['rod', 36] });
   add(143, 'raf', 'Mateus Supermercados', 'Loja Holandeses', 'Av. dos Holandeses, 9 — São Luís/MA', 'MA', 'Próximo ao estacionamento', 2);
-  return { v: SEED_VERSION, users: USERS, inst };
+  return { v: SEED_VERSION, users: USERS, inst, maqs: await seedMaquinas(y, now, H, nome), prepSeq: 100 };
+}
+/** Máquinas preparadas na base (backend/seed.py: seed_maquinas). */
+async function seedMaquinas(y, now, H, nome) {
+  const fotos = {};
+  for (const slot of PREP_SLOTS) {
+    try {
+      const [o, m] = await Promise.all([`img/demo/prep/${slot}.jpg`, `img/demo/prep/${slot}_marca.jpg`].map(u => fetch(u).then(r => r.ok ? r.blob() : null)));
+      if (o && m) { await files.put(`seedprep/${slot}_orig.jpg`, o); await files.put(`seedprep/${slot}_marca.jpg`, m); fotos[slot] = { orig: `seedprep/${slot}_orig.jpg`, mark: `seedprep/${slot}_marca.jpg` }; }
+    } catch { /* sem a foto de exemplo */ }
+  }
+  let pid = 0;
+  const maqs = [];
+  const maq = (n, uf, preps, { designado, instalada } = {}) => {
+    const serie = `RM-${y}-${String(n).padStart(4, '0')}`, list = [];
+    for (const [tec, ago, { nok = {}, naPromo = false } = {}] of preps) {
+      const em = Math.round(now - ago * H);
+      const itens = Object.fromEntries(PREP.map(k => [k, { ok: k === 'promo' && naPromo ? null : true, obs: '' }]));
+      Object.entries(nok).forEach(([k, obs]) => { itens[k] = { ok: false, obs }; });
+      const f = {};
+      PREP_SLOTS.forEach((slot, i) => { if (fotos[slot] && !(slot === 'i_promo' && naPromo)) f[slot] = { ...fotos[slot], ts: em - (PREP_SLOTS.length - i) * 60000, lat: null, lng: null }; });
+      list.unshift({ id: ++pid, clientId: `seed-prep-${serie}-${ago}`, em, tecnico: nome(tec), tecnicoId: tec, uf, itens, conforme: prepConforme(itens), corrigidos: list[0] ? prepCorrigidos(list[0].itens, itens) : [], fotos: f });
+    }
+    const last = list[0];
+    maqs.push({ serie, pin: String(n * 7919 % 1000000).padStart(6, '0'), uf, status: instalada ? M_INSTALADA : last.conforme ? M_DISPONIVEL : M_NAO_CONFORME,
+      designado: designado ? { id: designado[0], nome: nome(designado[0]), por: nome(designado[1]), em: Math.round(now - designado[2] * H) } : null,
+      criadoEm: last.em, atualizadoEm: last.em, instaladaRoi: instalada ? `ROI-${y}-${String(instalada[0]).padStart(4, '0')}` : null,
+      instaladaEm: instalada ? Math.round(now - instalada[1] * H) : null, preps: list });
+  };
+  maq(147, 'SP', [['car', 30]], { designado: ['tec1', 'pat', 26] });
+  maq(152, 'RJ', [['tec1', 28, { naPromo: true }]]);
+  maq(160, 'PE', [['joa', 22]], { designado: ['joa', 'her', 20] });
+  maq(163, 'BA', [['raf', 18, { naPromo: true }]]);
+  maq(170, 'MG', [['mar', 40]], { designado: ['mar', 'rod', 36] });
+  maq(171, 'SP', [['car', 10, { nok: { adesiv: 'Bolha na lateral direita; aguardando readesivação.' } }]]);
+  maq(172, 'MA', [['raf', 50, { nok: { modem: 'Sem sinal da operadora; chip será trocado.' } }], ['raf', 24]]);
+  maq(140, 'RJ', [['tec1', 60]], { designado: ['tec1', 'pat', 50], instalada: [140, 20] });
+  return maqs.sort((a, b) => b.atualizadoEm - a.atualizadoEm);
 }
 
 /* ---------------- Serialização (services.roi_json): arquivos viram blob: URLs ---------------- */
@@ -276,8 +334,70 @@ async function createInstallation(u, fd) {
     lei: { status: AGUARDANDO, ...buildLei(cl, avaria, data.obs || ''), validadoPor: null, validadoEm: null, chave: null }, ...visita(data),
   };
   st.inst.push(r);
+  const mq = st.maqs.find(m => m.serie === r.equip.serie.toUpperCase() && m.status !== M_INSTALADA);   // máquina preparada na base: instalada
+  if (mq) Object.assign(mq, { status: M_INSTALADA, instaladaRoi: codigo, instaladaEm: r.closedAt, atualizadoEm: Date.now() });
   await persist();
   return [r, false];
+}
+
+/* ---------------- Máquinas (services.create_prep / maquina_json / designar) ---------------- */
+const maqVisivel = (m, u) => u.perfil !== 'tecnico' || m.designado?.id === u.id || !u.ufs?.length || u.ufs.includes(m.uf);
+async function maqOr404(serie, u) {
+  const m = (await state()).maqs.find(x => x.serie === String(serie).toUpperCase());
+  if (!m || !maqVisivel(m, u)) throw new ApiError('Não encontrado', 404);
+  return m;
+}
+async function prepJson(p, photos) {
+  const { clientId, fotos, ...out } = structuredClone(p);
+  if (photos) {
+    out.fotos = {};
+    for (const [slot, f] of Object.entries(fotos)) out.fotos[slot] = { ts: f.ts, lat: f.lat, lng: f.lng, mark: await fileUrl(f.mark), origUrl: await fileUrl(f.orig) };
+  }
+  return out;
+}
+async function maquinaJson(m, detail = false) {
+  const st = await state(), i = m.instaladaRoi && st.inst.find(r => r.id === m.instaladaRoi);
+  const out = { serie: m.serie, pin: m.pin, uf: m.uf, status: m.status, criadoEm: m.criadoEm, atualizadoEm: m.atualizadoEm, designado: m.designado ? { ...m.designado } : null,
+    instalada: m.instaladaRoi ? { roi: m.instaladaRoi, em: m.instaladaEm, cliente: i?.local.cliente ?? null, ambiente: i?.local.ambiente ?? null, tecnico: i?.tecnico ?? null } : null,
+    nPreps: m.preps.length, ultimaPrep: m.preps[0] ? await prepJson(m.preps[0], false) : null };
+  if (detail) out.preps = await Promise.all(m.preps.map(p => prepJson(p, true)));
+  return out;
+}
+async function createPrep(u, fd) {
+  let data;
+  try { data = JSON.parse(fd.get('data') || ''); } catch { throw new ApiError("JSON inválido em 'data'"); }
+  const st = await state(), cid = String(data.clientId || '').slice(0, 64) || null;
+  const dup = cid && st.maqs.find(m => m.preps.some(p => p.clientId === cid));
+  if (dup) return [dup, false];
+  const photos = {};
+  for (const slot of PREP_SLOTS) {
+    const mk = fd.get(`mark_${slot}`), o = fd.get(`orig_${slot}`);
+    if (!mk) continue;
+    if (!['jpg', 'png', 'webp'].includes(await sniff(mk))) throw new ApiError(`Imagem inválida: ${slot}`, 415);
+    if (o && !(await sniff(o))) throw new ApiError(`Original inválido: ${slot}`, 415);
+    photos[slot] = { mk, o, meta: data.fotos?.[slot] || {} };
+  }
+  const err = validatePrep(data, Object.keys(photos));
+  if (err) throw new ApiError(err, 422);
+  const serie = String(data.serie).trim().toUpperCase().slice(0, 40), uf = String(data.uf).trim();
+  if (u.ufs?.length && !u.ufs.includes(uf)) throw new ApiError('Estado (UF) fora da sua área de atuação', 422);
+  let m = st.maqs.find(x => x.serie === serie);
+  if (m?.status === M_INSTALADA) throw new ApiError('Esta máquina já foi instalada', 409);
+  const itens = Object.fromEntries(PREP.map(k => [k, { ok: data.itens[k].ok, obs: String(data.itens[k].obs || '').slice(0, 2000) }]));
+  const em = Date.now(), id = ++st.prepSeq, fotos = {};
+  for (const [slot, p] of Object.entries(photos)) {
+    const orig = p.o ? `prep/${id}/${slot}_orig.${await sniff(p.o)}` : null;
+    if (orig) await files.put(orig, p.o);
+    await files.put(`prep/${id}/${slot}_marca.jpg`, p.mk);
+    fotos[slot] = { mark: `prep/${id}/${slot}_marca.jpg`, orig, ts: p.meta.ts ?? null, lat: p.meta.lat ?? null, lng: p.meta.lng ?? null };
+  }
+  const conforme = prepConforme(itens);
+  const prep = { id, clientId: cid, em, tecnico: u.nome, tecnicoId: u.id, uf, itens, conforme, corrigidos: m?.preps[0] ? prepCorrigidos(m.preps[0].itens, itens) : [], fotos };
+  if (!m) { m = { serie, pin: '', uf, status: M_NAO_CONFORME, designado: null, criadoEm: em, atualizadoEm: em, instaladaRoi: null, instaladaEm: null, preps: [] }; st.maqs.unshift(m); }
+  m.preps.unshift(prep);
+  Object.assign(m, { pin: String(data.pin || '').slice(0, 20), uf, status: conforme ? M_DISPONIVEL : M_NAO_CONFORME, atualizadoEm: em });
+  await persist();
+  return [m, true];
 }
 
 async function validarLei(r, u) {
@@ -309,6 +429,27 @@ async function route(method, path, body) {
     return { ok: true };
   }
   if (M === 'GET me') return pub(await auth());
+  if (M === 'GET tecnicos') { await auth('gestao', 'adm', 'projetos'); return (await state()).users.filter(u => u.perfil === 'tecnico' && u.ativo).map(pub).sort((a, b) => a.nome.localeCompare(b.nome)); }
+  if (seg[0] === 'maquinas') {
+    if (method === 'POST' && seg[1] === 'prep') { const u = await auth('tecnico'); const [m, criado] = await createPrep(u, body); return new Reply(await maquinaJson(m), criado ? 201 : 200); }
+    const u = await auth('tecnico', 'gestao', 'adm', 'projetos'), st = await state();
+    if (method === 'GET' && seg.length === 1) {
+      const rows = [...st.maqs].sort((a, b) => b.atualizadoEm - a.atualizadoEm).filter(m => u.perfil !== 'tecnico' || (maqVisivel(m, u) && m.status !== M_INSTALADA));
+      return Promise.all(rows.map(m => maquinaJson(m)));
+    }
+    if (method === 'GET' && seg.length === 2) return maquinaJson(await maqOr404(seg[1], u), true);
+    if (method === 'POST' && seg[2] === 'designar') {
+      if (u.perfil !== 'gestao') throw new ApiError('Sem permissão para este perfil', 403);
+      const m = await maqOr404(seg[1], u), tid = body?.tecnicoId;
+      const tec = tid ? st.users.find(x => x.id === String(tid) && x.perfil === 'tecnico' && x.ativo) : null;
+      if (tid && !tec) throw new ApiError('Técnico não encontrado', 404);
+      if (m.status !== M_DISPONIVEL) throw new ApiError('Só máquinas disponíveis para instalação podem ser designadas', 409);
+      if (tec?.ufs?.length && !tec.ufs.includes(m.uf)) throw new ApiError(`${tec.nome} não atua em ${m.uf}`, 422);
+      m.designado = tec ? { id: tec.id, nome: tec.nome, por: u.nome, em: Date.now() } : null; m.atualizadoEm = Date.now();
+      await persist();
+      return maquinaJson(m);
+    }
+  }
   if (M === 'GET usuarios') { await auth('adm'); return (await state()).users.map(u => ({ ...pub(u), ativo: u.ativo })); }
   if (M === 'GET cms') {
     await auth('tecnico', 'adm');

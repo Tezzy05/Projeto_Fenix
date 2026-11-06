@@ -2,10 +2,10 @@
 // O que ainda não foi enviado ao servidor vive só no aparelho (rascunho + fila); o servidor é a fonte da verdade.
 
 export const PERFIS = {
-  tecnico:  { label: 'Operacional · Técnicos', nav: [['#/tecnico', 'Instalações']], routes: ['/tecnico'] },
-  gestao:   { label: 'Gestão · Supervisão Operacional', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos']], routes: ['/painel', '/laudos', '/lei', '/fotos'] },
-  projetos: { label: 'Projetos · Relatórios de clientes', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos'], ['#/projetos', 'Laudos disponíveis'], ['#/fotos', 'Fotos']], routes: ['/painel', '/laudos', '/projetos', '/fotos', '/lei'] },
-  adm:      { label: 'ADM', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos'], ['#/projetos', 'Projetos'], ['#/fotos', 'Fotos'], ['#/usuarios', 'Usuários']], routes: ['/painel', '/laudos', '/lei', '/projetos', '/fotos', '/usuarios'] },
+  tecnico:  { label: 'Operacional · Técnicos', nav: [['#/tecnico', 'Instalações'], ['#/maquinas', 'Máquinas']], routes: ['/tecnico', '/maquinas'] },
+  gestao:   { label: 'Gestão · Supervisão Operacional', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos'], ['#/maquinas', 'Máquinas']], routes: ['/painel', '/laudos', '/lei', '/fotos', '/maquinas'] },
+  projetos: { label: 'Projetos · Relatórios de clientes', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos'], ['#/maquinas', 'Máquinas'], ['#/projetos', 'Laudos disponíveis'], ['#/fotos', 'Fotos']], routes: ['/painel', '/laudos', '/maquinas', '/projetos', '/fotos', '/lei'] },
+  adm:      { label: 'ADM', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Laudos'], ['#/maquinas', 'Máquinas'], ['#/projetos', 'Projetos'], ['#/fotos', 'Fotos'], ['#/usuarios', 'Usuários']], routes: ['/painel', '/laudos', '/lei', '/maquinas', '/projetos', '/fotos', '/usuarios'] },
   consulta: { label: 'Consulta', nav: [['#/painel', 'Visão geral'], ['#/laudos', 'Instalações'], ['#/fotos', 'Fotos']], routes: ['/painel', '/laudos', '/fotos'] },
 };
 /** Quem exporta relatórios em Excel (Consulta não). */
@@ -40,6 +40,14 @@ export const AVARIA = [FOTO_EXTRA, ...[2, 3, 4, 5].map(n => ({ k: 'fx' + n, t: '
 export const fotoList = r => [...FOTOS, ...(r.avaria ? AVARIA.filter((f, i) => i === 0 || r.fotos?.[f.k]) : [])];
 /** Nº de série de teste que o CMS de demonstração reconhece. */
 export const CMS_DEMO = ['RM-2026-0147', 'RM-2026-0152', 'RM-2026-0160', 'RM-2026-0163'];
+
+// Checklist de preparação na base (backend/rules.py: PREP). Concluído sem não conformidades, a máquina fica disponível para instalação.
+export const PREP = [
+  { k: 'hw', t: 'Instalação de hardware' }, { k: 'sw', t: 'Instalação de software' }, { k: 'seg', t: 'Instalação de módulos de segurança' },
+  { k: 'modem', t: 'Configuração de modem' }, { k: 'promo', t: 'Tela/botão promocional', opt: true }, { k: 'adesiv', t: 'Adesivação' },
+];
+export const PREP_FOTOS = [{ k: 'mf', t: 'Frontal (adesivada e ligada)' }, { k: 'me', t: 'Lateral esquerda' }, { k: 'md', t: 'Lateral direita' }];
+export const MSTATUS = { DISPONIVEL: ['Disponível', 'lime'], NAO_CONFORME: ['Não conforme', 'bad'], INSTALADA: ['Instalada', 'dark'] };
 
 export const countNok = r => CHECK.filter(x => r.checklist?.[x.k]?.ok === false).length;
 export const uuid = () => crypto.randomUUID?.() ?? ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
@@ -134,6 +142,13 @@ export async function syncAll(onStage) {
         fotos[k] = { ts: p.ts, lat: p.lat, lng: p.lng, origem: p.origem || 'camera' };
         fd.append(`mark_${k}`, dataUrlToBlob(p.mark), `${k}.jpg`);
         if (p.orig) fd.append(`orig_${k}`, p.orig, p.orig.name || `${k}.jpg`);
+      }
+      if (r.kind === 'prep') {
+        fd.append('data', JSON.stringify({ clientId: r.id, serie: r.serie, pin: r.pin, uf: r.uf, itens: r.itens, fotos }));
+        onStage?.('fotos', r);
+        try { await api.form('/api/maquinas/prep', fd); r.sync = 'sincronizado'; r.syncedAt = Date.now(); for (const p of Object.values(r.fotos || {})) delete p.orig; await db.put(r); out.n++; }
+        catch (e) { if (e.status === 0 || e.status === 401 || e.status >= 500) throw e; r.syncError = e.message; await db.put(r); out.errors.push(`${r.serie}: ${e.message}`); }
+        continue;
       }
       if (r.aceite?.assinatura) fd.append('assinatura', dataUrlToBlob(r.aceite.assinatura), 'assinatura.png');
       fd.append('data', JSON.stringify({ clientId: r.id, iniciadoEm: r.iniciadoEm, closedAt: r.closedAt, local: r.local, equip: r.equip, checklist: r.checklist,

@@ -5,13 +5,13 @@ import { $, $$, esc, fmtD, fmtDT, toast, openModal, closeModal, svgi, hexi, chip
 import { leiHTML, roiHTML, slidesHTML, openPrint } from './docs.js';
 
 const G = () => window.gsap;
-const reveal = (sel, root) => {
+export const reveal = (sel, root) => {
   const els = $$(sel, root); if (!els.length || reduced || !G()) return;
   if (window.ScrollTrigger) { G().registerPlugin(window.ScrollTrigger); G().set(els, { opacity: 0, y: 24 }); window.ScrollTrigger.batch(els, { onEnter: b => G().to(b, { opacity: 1, y: 0, duration: 0.6, stagger: 0.08, ease: 'power3.out' }), once: true, start: 'top 92%' }); }
   else G().from(els, { opacity: 0, y: 24, duration: 0.6, stagger: 0.08 });
 };
-const heroTitle = (txt, hl) => `<h1 class="h-xl">${txt} <span class="hl">${hl}</span></h1>`;
-const sweep = root => { if (!reduced) G()?.fromTo($$('.hl', root), { '--w': '0%' }, { '--w': '100%', duration: 0.8, delay: 0.2, ease: 'power3.out' }); };
+export const heroTitle = (txt, hl) => `<h1 class="h-xl">${txt} <span class="hl">${hl}</span></h1>`;
+export const sweep = root => { if (!reduced) G()?.fromTo($$('.hl', root), { '--w': '0%' }, { '--w': '100%', duration: 0.8, delay: 0.2, ease: 'power3.out' }); };
 
 const validated = rs => rs.filter(r => r.lei?.status === 'DISPONIVEL_PROJETOS');
 const load = () => api.get('/api/roi');                       // o servidor já filtra por perfil (técnico: os seus; Consulta: sem detalhes técnicos)
@@ -26,7 +26,7 @@ const CAT = {
   validados: r => r.lei?.status === 'DISPONIVEL_PROJETOS', nok: r => countNok(r) > 0,
 };
 const noFilter = () => ({ q: '', st: 'todos', tec: '', uf: '', cliente: '', de: '', ate: '' });
-const dayStart = d => new Date(d + 'T00:00').getTime();
+export const dayStart = d => new Date(d + 'T00:00').getTime();
 function applyFilters(rs, f) {
   const q = f.q.trim().toLowerCase();
   return rs.filter(r => CAT[f.st](r)
@@ -38,7 +38,7 @@ const isClean = f => JSON.stringify(f) === JSON.stringify(noFilter());
 const tecnicos = rs => [...new Map(rs.filter(r => r.tecnicoId).map(r => [r.tecnicoId, r.tecnico])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
 const ufsDe = rs => [...new Set(rs.map(r => r.local?.uf).filter(Boolean))].sort();
 const clientesDe = rs => [...new Set(rs.map(r => r.local?.cliente).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-const opts = (list, sel, todos) => `<option value="">${todos}</option>${list.map(([v, t]) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(t)}</option>`).join('')}`;
+export const opts = (list, sel, todos) => `<option value="">${todos}</option>${list.map(([v, t]) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(t)}</option>`).join('')}`;
 
 /* ------------------------- Visão geral ------------------------- */
 export async function overview(el, u) {
@@ -145,7 +145,7 @@ function exportDialog(rs, u, f) {
   };
 }
 // O ExcelJS grava datas em UTC: desloca pelo fuso para a planilha mostrar o horário local.
-const dt = t => (t ? new Date(t - new Date(t).getTimezoneOffset() * 60000) : null);
+export const dt = t => (t ? new Date(t - new Date(t).getTimezoneOffset() * 60000) : null);
 const conf = v => (v == null ? '' : v ? 'Conforme' : 'Não conforme');
 const ROI_COLS = () => [
   ['ROI', r => r.id, 16], ['Status do LEI', r => STATUS[r.lei?.status], 22], ['Cliente', r => r.local.cliente, 26], ['Ambiente', r => r.local.ambiente, 24],
@@ -169,25 +169,29 @@ const LEI_COLS = rows => [
   ['Chave de autenticação', r => r.lei.chave, 26],
 ];
 async function xlsx(tipo, rows, f, all, u) {
+  const tec = tecnicos(all).find(([id]) => id === f.tec)?.[1];
+  await writeXlsx(tipo === 'roi' ? 'ROI' : 'LEI', tipo === 'roi' ? ROI_COLS() : LEI_COLS(rows), rows, [
+    ['Relatório', tipo === 'roi' ? 'ROI — Relatório Operacional de Instalação' : 'LEI — Laudo de Entrega e Instalação'], ['Gerado por', u.nome],
+    ['Período', periodo(f)], ['Cliente', f.cliente || 'Todos'], ['Estado (UF)', f.uf || 'Todos'], ['Técnico', tec || 'Todos']], `Fenix_${tipo.toUpperCase()}`);
+}
+export const periodo = f => (f.de || f.ate ? `${f.de ? fmtD(dayStart(f.de)) : 'início'} a ${f.ate ? fmtD(dayStart(f.ate)) : 'hoje'}` : 'Todos');
+/** Planilha Excel: aba de dados (cols = [título, valor(r), largura, 'd' data | 'w' texto longo]) + aba "Filtros". */
+export async function writeXlsx(sheet, cols, rows, info, file) {
   const ExcelJS = await lib('exceljs.min.js', 'ExcelJS');
   const wb = new ExcelJS.Workbook(); wb.creator = 'Projeto Fênix'; wb.created = new Date();
-  const ws = wb.addWorksheet(tipo === 'roi' ? 'ROI' : 'LEI', { views: [{ state: 'frozen', ySplit: 1 }] });
-  const cols = tipo === 'roi' ? ROI_COLS() : LEI_COLS(rows);
+  const ws = wb.addWorksheet(sheet, { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = cols.map(([header, , width, kind]) => ({ header, width, style: kind === 'd' ? { numFmt: 'dd/mm/yyyy hh:mm' } : kind === 'w' ? { alignment: { wrapText: true, vertical: 'top' } } : {} }));
   rows.forEach(r => ws.addRow(cols.map(([, fn]) => fn(r) ?? '')));
   const head = ws.getRow(1);
   head.font = { bold: true }; head.height = 30; head.alignment = { vertical: 'middle', wrapText: true };
   head.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCCFF03' } }; c.border = { bottom: { style: 'thin' } }; });
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
-  const tec = tecnicos(all).find(([id]) => id === f.tec)?.[1];
-  const info = wb.addWorksheet('Filtros');
-  info.columns = [{ width: 18 }, { width: 50 }];
-  info.addRows([['Relatório', tipo === 'roi' ? 'ROI — Relatório Operacional de Instalação' : 'LEI — Laudo de Entrega e Instalação'], ['Gerado em', fmtDT(Date.now())], ['Gerado por', u.nome],
-    ['Período', f.de || f.ate ? `${f.de ? fmtD(dayStart(f.de)) : 'início'} a ${f.ate ? fmtD(dayStart(f.ate)) : 'hoje'}` : 'Todos'], ['Cliente', f.cliente || 'Todos'],
-    ['Estado (UF)', f.uf || 'Todos'], ['Técnico', tec || 'Todos'], ['Registros', rows.length]]);
-  info.getColumn(1).font = { bold: true };
+  const inf = wb.addWorksheet('Filtros');
+  inf.columns = [{ width: 18 }, { width: 50 }];
+  inf.addRows([info[0], ['Gerado em', fmtDT(Date.now())], ...info.slice(1), ['Registros', rows.length]]);
+  inf.getColumn(1).font = { bold: true };
   const buf = await wb.xlsx.writeBuffer();
-  download(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `Fenix_${tipo.toUpperCase()}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  download(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${file}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 /* ------------------------- Fotos: download das originais (.zip) ------------------------- */
@@ -444,7 +448,8 @@ export async function projetos(el, u) {
 /* ------------------------- Usuários ------------------------- */
 export async function usuarios(el) {
   const users = await api.get('/api/usuarios');
-  const perms = [['Criar/preencher ROI', 'tecnico'], ['Ver todos os ROIs e LEIs', 'gestao adm projetos'], ['Ver instalações (sem detalhes técnicos)', 'consulta'],
+  const perms = [['Criar/preencher ROI', 'tecnico'], ['Checklist de preparação na base', 'tecnico'], ['Ver máquinas do seu estado', 'tecnico'], ['Ver máquinas de todo o país', 'gestao adm projetos'],
+    ['Designar técnico para instalação', 'gestao'], ['Ver todos os ROIs e LEIs', 'gestao adm projetos'], ['Ver instalações (sem detalhes técnicos)', 'consulta'],
     ['Editar e validar LEI', 'gestao'], ['Baixar LEI e Check-in', 'projetos adm'], ['Baixar fotos originais (.zip)', 'projetos adm consulta'],
     ['Exportar relatórios (Excel)', 'gestao adm projetos'], ['Gerenciar usuários', 'adm']];
   el.innerHTML = `<section class="band"><div class="wrap"><p class="eyebrow">ADM</p>${heroTitle('Usuários e', 'acessos')}</div></section>
