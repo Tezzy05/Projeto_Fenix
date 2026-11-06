@@ -1,5 +1,5 @@
 // Geração dos documentos: LEI (cliente), ROI (interno) e Check-in Fotográfico (slides).
-import { CHECK, FOTOS, FOTO_EXTRA } from './data.js';
+import { CHECK, FOTOS, fotoList } from './data.js';
 import { esc, fmtD, fmtDT, wordmark } from './ui.js';
 
 const cb = on => `<i class="cb ${on ? 'on' : ''}"></i>`;
@@ -16,7 +16,8 @@ export function leiHTML(r) {
     <dl class="kv">
       <dt>Cliente</dt><dd>${esc(l.cliente)}</dd><dt>Ambiente</dt><dd>${esc(l.ambiente)}</dd>
       <dt>Localização do equipamento</dt><dd>${esc(l.localizacao)}</dd><dt>Data de conclusão</dt><dd>${fmtD(r.closedAt)}</dd>
-      <dt>Endereço</dt><dd>${esc(l.endereco)}</dd><dt>Técnico responsável</dt><dd>${esc(r.tecnico)}</dd>
+      <dt>Endereço</dt><dd>${esc(l.endereco)}</dd><dt>Estado (UF)</dt><dd>${esc(l.uf || '—')}</dd>
+      <dt>Técnico responsável</dt><dd>${esc(r.tecnico)}</dd>
       <dt>Responsável pelo recebimento</dt><dd>${esc(r.aceite?.nome)}</dd>
     </dl>
     <h3><span class="n">2</span> Especificações do Equipamento</h3>
@@ -33,19 +34,20 @@ export function leiHTML(r) {
       <div><div class="sline">${L.validadoPor ? `<span class="signed">${esc(L.validadoPor)}</span>` : ''}</div>
         <b>Ambipar Pós-Consumo</b><span>Supervisão Operacional${L.validadoPor ? ` · ${esc(L.validadoPor)}` : ''}</span>
         ${L.chave ? `<small>Chave de autenticação: ${esc(L.chave)}<br>Validado em ${fmtDT(L.validadoEm)}</small>` : '<small class="pend">Aguardando validação da Supervisão</small>'}</div>
-      <div><div class="sline"></div><b>Cliente</b><span>Validação cliente</span><small>(Assinatura ou confirmação por e-mail)</small></div>
+      <div><div class="sline">${r.aceite?.assinatura ? `<img class="sigmini" src="${esc(r.aceite.assinatura)}" alt="Assinatura do cliente">` : ''}</div>
+        <b>${esc(r.aceite?.nome || 'Cliente')}</b><span>${r.aceite?.doc ? 'Documento ' + esc(r.aceite.doc) + ' · ' : ''}Cliente · ${esc(l.cliente)}</span><small>(Assinatura ou confirmação por e-mail)</small></div>
     </div>
   </article>`;
 }
 
 export function roiHTML(r) {
   const e = r.equip, l = r.local, m = e.modem || {}, c = e.chip || {};
-  const photos = [...FOTOS, ...(r.avaria ? [FOTO_EXTRA] : [])].filter(f => r.fotos?.[f.k]?.mark);
+  const photos = fotoList(r).filter(f => r.fotos?.[f.k]?.mark);
   return `<article class="paper roi">
     <header class="ph">${wordmark()}<div><h1>Relatório Operacional de Instalação (ROI)</h1><p>Documento interno · ${esc(r.codigo || (r.sync === 'pendente' ? 'pendente de sincronização' : r.id))}</p></div></header>
     <h3><span class="n">1</span> Identificação do local e responsáveis</h3>
     <dl class="kv"><dt>Data/Hora</dt><dd>${fmtDT(r.closedAt)}</dd><dt>Cliente</dt><dd>${esc(l.cliente)}</dd><dt>Ambiente</dt><dd>${esc(l.ambiente)}</dd>
-    <dt>Endereço</dt><dd>${esc(l.endereco)}</dd><dt>Localização</dt><dd>${esc(l.localizacao)}</dd><dt>Técnico</dt><dd>${esc(r.tecnico)}</dd></dl>
+    <dt>Endereço</dt><dd>${esc(l.endereco)}</dd><dt>Estado (UF)</dt><dd>${esc(l.uf || '—')}</dd><dt>Localização</dt><dd>${esc(l.localizacao)}</dd><dt>Técnico</dt><dd>${esc(r.tecnico)}</dd></dl>
     <h3><span class="n">2</span> Equipamento e conectividade</h3>
     <dl class="kv"><dt>Nº de Série</dt><dd>${esc(e.serie)}</dd><dt>PIN</dt><dd>${esc(e.pin)}</dd><dt>APK versão</dt><dd>${esc(e.apk)}</dd>
     <dt>Modem</dt><dd>${esc(m.op)} · ${esc(m.modelo)} · IMEI ${esc(m.imei)} · N/S ${esc(m.ns)}</dd>

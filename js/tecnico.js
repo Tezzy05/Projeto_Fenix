@@ -1,16 +1,19 @@
 // App do técnico: wizard do ROI, offline-first (rascunho contínuo no IndexedDB do aparelho).
-import { db, api, CHECK, FOTOS, FOTO_EXTRA, net, uuid, syncAll, notify } from './data.js';
+import { db, api, CHECK, FOTOS, AVARIA, CMS_DEMO, UFS, net, uuid, syncAll, notify } from './data.js';
 import { $, $$, esc, fmtDT, fmtT, pad, toast, openModal, closeModal, svgi, hexi, mo, spring, shake, chip, setPath, getPath, drawHex, reduced } from './ui.js';
 import { roiHTML, openPrint } from './docs.js';
 
 const STEPS = ['Local', 'Equipamento', 'Checklist', 'Fotos', 'Aceite'];
 let root, user, D, step = 0, mode = 'home', saveTimer, clock, doneId;
+const F = { q: '', s: 'todas', de: '', ate: '' };     // busca e filtros de "Minhas instalações"
 
-const newDraft = u => ({ id: 'DRAFT-' + u.id, draft: true, tecnico: u.nome, tecnicoId: u.id, iniciadoEm: Date.now(), local: {}, equip: { modem: {}, chip: {} }, checklist: {}, fotos: {}, avaria: false, obs: '', aceite: {} });
+// Vários rascunhos por técnico: cada um tem id próprio (os antigos, 'DRAFT-<usuário>', continuam valendo).
+const newDraft = u => ({ id: 'draft-' + uuid(), draft: true, tecnico: u.nome, tecnicoId: u.id, iniciadoEm: Date.now(), local: { uf: u.ufs?.length === 1 ? u.ufs[0] : '' },
+  equip: { modem: {}, chip: {} }, checklist: {}, fotos: {}, avaria: false, avariaN: 1, obs: '', aceite: {} });
+const myUfs = () => user.ufs?.length ? user.ufs : UFS;   // sem UFs cadastradas: qualquer estado
 
 export async function renderTecnico(el, u) {
-  root = el; user = u; step = 0; mode = 'home';
-  D = await db.get('DRAFT-' + u.id);
+  root = el; user = u; step = 0; mode = 'home'; D = null;
   await home();
   root.onclick = onClick; root.oninput = onInput; root.onchange = onChange;
   const onData = () => { if (mode === 'home') home(false); else if (mode === 'done') refreshDone(); };
@@ -21,15 +24,19 @@ export async function renderTecnico(el, u) {
 /* ------------------------------ Home ------------------------------ */
 async function home(animate = true) {
   mode = 'home'; clearInterval(clock);
-  const mine = (await db.all()).filter(r => !r.draft && r.tecnicoId === user.id).sort((a, b) => b.closedAt - a.closedAt);
+  const all = await db.all();
+  const drafts = all.filter(r => r.draft && r.tecnicoId === user.id).sort((a, b) => b.iniciadoEm - a.iniciadoEm);
+  const mine = all.filter(r => !r.draft && r.tecnicoId === user.id);
   const pend = mine.filter(r => r.sync === 'pendente' && !r.syncError).length;
   const rej = mine.filter(r => r.syncError);
   root.innerHTML = `<section class="phone-home">
     <p class="eyebrow">Olá, ${esc(user.nome)}</p>
     <h1 class="h-xl">Nova <span class="hl">instalação</span></h1>
     <p class="lead">Preencha o ROI mesmo sem sinal. Tudo fica salvo neste aparelho até a sincronização.</p>
-    <button class="btn lime big" data-act="new">${svgi('leaf', 22)} ${D ? 'Continuar rascunho' : 'Iniciar ROI'}</button>
-    ${D ? `<button class="btn-link" data-act="discard">Descartar rascunho</button>` : ''}
+    <button class="btn lime big" data-act="new">${svgi('leaf', 22)} Iniciar ROI</button>
+    ${drafts.length ? `<h2 class="h-md">Rascunhos <small class="mute">${drafts.length}</small></h2><div class="list">${drafts.map(r => `<div class="li"><div><b>${esc(r.local?.cliente || 'Cliente não informado')}${r.local?.ambiente ? ' · ' + esc(r.local.ambiente) : ''}</b>
+      <span>Iniciado em ${fmtDT(r.iniciadoEm)} · passo ${(r.step || 0) + 1} de 5</span></div>
+      <div class="li-r"><button class="btn dark sm" data-act="open" data-id="${esc(r.id)}">Continuar</button><button class="icon-btn" data-act="discard" data-id="${esc(r.id)}" aria-label="Descartar rascunho">${svgi('x', 18)}</button></div></div>`).join('')}</div>` : ''}
     <div class="sync-card ${pend ? 'has' : ''}">
       <div>${hexi(net.online ? 'cloud' : 'wifi')}</div>
       <div><b>${pend ? `${pend} ROI aguardando sincronização` : 'Tudo sincronizado'}</b>
@@ -38,14 +45,33 @@ async function home(animate = true) {
     </div>
     ${rej.map(r => `<p class="rule">${svgi('alert', 16)}<span><b>${esc(r.local.cliente)}</b> foi recusado pelo servidor: ${esc(r.syncError)}</span></p>`).join('')}
     <h2 class="h-md">Minhas instalações</h2>
-    <div class="list">${mine.length ? mine.map(r => `<div class="li"><div><b>${esc(r.local.cliente)} · ${esc(r.local.ambiente)}</b><span>${esc(r.codigo || 'Aguardando envio')} · ${fmtDT(r.closedAt)}</span></div>
-      <div class="li-r">${r.syncError ? chip('Recusado', 'bad') : r.sync === 'pendente' ? chip('Pendente', 'warn') : chip('Sincronizado', 'lime')}<button class="icon-btn" data-act="pdf" data-id="${r.id}" aria-label="Ver ROI em PDF">${svgi('doc', 18)}</button></div></div>`).join('') : '<p class="empty">Nenhuma instalação concluída ainda.</p>'}</div>
+    ${mine.length ? `<div class="fbar">
+      <input type="search" id="fq" placeholder="Buscar cliente, ambiente ou nº de série" value="${esc(F.q)}" aria-label="Buscar instalações">
+      <div class="filters sm">${[['todas', 'Todas'], ['pendente', 'Pendentes'], ['sincronizado', 'Sincronizadas'], ['recusado', 'Recusadas']].map(([k, t]) => `<button type="button" data-fs="${k}" class="${F.s === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <div class="dates"><label>De <input type="date" id="fde" value="${F.de}"></label><label>Até <input type="date" id="fate" value="${F.ate}"></label></div>
+    </div>` : ''}
+    <div class="list" id="mineList"></div>
   </section>`;
+  drawMine(mine);
   if (animate) { drawHex(root); mo($$('.phone-home > *', root), { opacity: [0, 1], y: [16, 0] }, { duration: 0.45, delay: window.Motion?.stagger(0.06) }); window.gsap?.fromTo('.phone-home .hl', { '--w': '0%' }, { '--w': '100%', duration: 0.8, delay: 0.25, ease: 'power3.out' }); }
+}
+const dayStart = d => new Date(d + 'T00:00').getTime();
+async function drawMine(mine) {
+  mine ??= (await db.all()).filter(r => !r.draft && r.tecnicoId === user.id);
+  const q = F.q.trim().toLowerCase();
+  const st = r => r.syncError ? 'recusado' : r.sync;
+  const list = mine.filter(r => (!q || [r.local?.cliente, r.local?.ambiente, r.equip?.serie, r.codigo].some(v => String(v || '').toLowerCase().includes(q)))
+    && (F.s === 'todas' || st(r) === F.s) && (!F.de || r.closedAt >= dayStart(F.de)) && (!F.ate || r.closedAt < dayStart(F.ate) + 864e5))
+    .sort((a, b) => b.closedAt - a.closedAt);
+  const el = $('#mineList', root); if (!el) return;
+  el.innerHTML = !mine.length ? '<p class="empty">Nenhuma instalação concluída ainda.</p>' : !list.length ? '<p class="empty">Nenhuma instalação com esses filtros.</p>'
+    : list.map(r => `<div class="li"><div><b>${esc(r.local.cliente)} · ${esc(r.local.ambiente)}</b><span>${esc(r.codigo || 'Aguardando envio')} · ${esc(r.local.uf || '')} · ${fmtDT(r.closedAt)}</span></div>
+      <div class="li-r">${r.syncError ? chip('Recusado', 'bad') : r.sync === 'pendente' ? chip('Pendente', 'warn') : chip('Sincronizado', 'lime')}<button class="icon-btn" data-act="pdf" data-id="${r.id}" aria-label="Ver ROI em PDF">${svgi('doc', 18)}</button></div></div>`).join('');
 }
 
 /* ------------------------------ Wizard ------------------------------ */
-async function startWizard() {
+async function startWizard(id) {
+  D = id ? await db.get(id) : null;
   if (!D) { D = newDraft(user); await db.put(D); }
   mode = 'wizard'; step = D.step || 0;
   root.innerHTML = `<div class="wiz">
@@ -85,13 +111,15 @@ function stepLocal() {
   return `<div class="card"><h2 class="h-md">${hexi('pin')}<span>Identificação do local</span></h2>
     <div class="fld auto"><span>Data/Hora <small>preenchido automaticamente</small></span><b id="now">${fmtDT(Date.now())}</b></div>
     ${field('local.cliente', 'Cliente', { ph: 'Ex.: IMMU' })}${field('local.ambiente', 'Ambiente', { ph: 'Ex.: Terminal 1' })}
-    ${field('local.endereco', 'Endereço')}${field('local.localizacao', 'Localização do equipamento', { ph: 'Ex.: Próximo aos caixas / Entrada principal' })}
+    ${field('local.endereco', 'Endereço')}
+    <div class="fld"><span>Estado (UF) <em>*</em>${user.ufs?.length ? ' <small>sua área de atuação</small>' : ''}</span><div class="pills wrapx" data-op="local.uf">${myUfs().map(o => `<button type="button" class="pill ${D.local.uf === o ? 'on' : ''}" data-v="${o}">${o}</button>`).join('')}</div></div>
+    ${field('local.localizacao', 'Localização do equipamento', { ph: 'Ex.: Próximo aos caixas / Entrada principal' })}
     <div class="fld auto"><span>Técnico responsável <small>usuário logado</small></span><b>${esc(D.tecnico)}</b></div></div>`;
 }
 function stepEquip() {
   return `<div class="card"><h2 class="h-md">${hexi('box')}<span>Equipamento</span></h2>
     <div class="fld"><span>Nº de Série <em>*</em></span><div class="inline"><input data-p="equip.serie" id="serie" value="${esc(D.equip.serie ?? '')}" placeholder="Digite ou escaneie" autocomplete="off" autocapitalize="characters"><button type="button" class="btn dark sm" data-act="cms">${svgi('refresh', 16)} CMS</button></div>
-    <small class="hint">Teste: <button type="button" class="tag-btn" data-act="demo">RM-2026-0147</button> preenche modem e chip como o CMS faria.</small></div>
+    <small class="hint">Teste: ${CMS_DEMO.map(n => `<button type="button" class="tag-btn" data-act="demo" data-sn="${n}">${n}</button>`).join(' ')} preenchem modem e chip como o CMS faria.</small></div>
     ${field('equip.pin', 'PIN', { mode: 'numeric' })}${field('equip.apk', 'APK versão', { ph: 'Ex.: 3.8.2' })}</div>
     <div class="card"><h2 class="h-md">${hexi('chip')}<span>Modem</span></h2>${opSel('equip.modem.op')}${field('equip.modem.modelo', 'Modelo')}${field('equip.modem.imei', 'IMEI', { mode: 'numeric' })}${field('equip.modem.ns', 'N/S (número de série)')}</div>
     <div class="card"><h2 class="h-md">${hexi('wifi')}<span>Chip</span></h2>${opSel('equip.chip.op')}${field('equip.chip.linha', 'Número da linha', { mode: 'tel', ph: '(11) 9....-....' })}${field('equip.chip.iccid', 'ICCID do chip', { mode: 'numeric' })}</div>`;
@@ -114,10 +142,10 @@ function placeSeg(seg, s, animate = true) {
 }
 
 function slot(f, extra) {
-  const p = D.fotos[f.k]; const i = FOTOS.findIndex(x => x.k === f.k);
+  const p = D.fotos[f.k]; const i = FOTOS.findIndex(x => x.k === f.k), a = AVARIA.findIndex(x => x.k === f.k);
   return `<div class="slot ${p ? 'done' : ''}" data-k="${f.k}"><button type="button" class="slot-btn" data-act="shot" data-k="${f.k}">
     <span class="sthumb">${p ? `<img src="${p.mark}" alt="">` : svgi('camera', 26)}</span>
-    <span class="smeta"><b>${extra ? 'FOTO EXTRA' : 'FOTO ' + (i + 1)}</b><span>${f.t}</span><small>${p ? `${fmtT(p.ts)} · ${p.lat != null ? p.lat.toFixed(4) + ', ' + p.lng.toFixed(4) : 'sem GPS'}` : (f.s || (extra ? 'Obrigatória se houver avaria' : 'Obrigatória'))}</small></span>
+    <span class="smeta"><b>${extra ? 'AVARIA ' + (a + 1) : 'FOTO ' + (i + 1)}</b><span>${f.t}</span><small>${p ? `${fmtT(p.ts)} · ${p.lat != null ? p.lat.toFixed(4) + ', ' + p.lng.toFixed(4) : 'sem GPS'}` : (a > 0 ? 'Opcional' : extra ? 'Obrigatória se houver avaria' : 'Obrigatória')}</small></span>
     <span class="stag">${p ? 'Refazer' : 'Tirar'}</span></button>
     <input type="file" accept="image/*" capture="environment" hidden data-file="${f.k}"></div>`;
 }
@@ -127,7 +155,13 @@ function stepFotos() {
     ${FOTOS.map(f => slot(f)).join('')}
     <div class="card"><div class="row"><div><b>Avaria no transporte?</b><small class="hint">Se sim, abre o campo do canhoto do frete com ressalva manuscrita.</small></div>
       <button type="button" class="switch ${D.avaria ? 'on' : ''}" role="switch" aria-checked="${!!D.avaria}" data-act="avaria"><i></i></button></div>
-      <div class="obs-wrap ${D.avaria ? 'open' : ''}" id="extraSlot">${slot(FOTO_EXTRA, true)}</div></div>`;
+      <div class="obs-wrap ${D.avaria ? 'open' : ''}" id="extraSlot"><div>${avariaSlots()}</div></div></div>`;
+}
+const avariaN = () => Math.max(D.avariaN || 1, ...AVARIA.map((f, i) => (D.fotos[f.k] ? i + 1 : 0)));
+function avariaSlots() {
+  const n = avariaN();
+  return `${AVARIA.slice(0, n).map(f => slot(f, true)).join('')}
+    ${n < AVARIA.length ? `<button type="button" class="btn ghost sm add-av" data-act="addAvaria">+ Adicionar foto da avaria <small>(${n} de ${AVARIA.length})</small></button>` : `<small class="hint">Limite de ${AVARIA.length} fotos de avaria.</small>`}`;
 }
 function stepAceite() {
   return `<div class="card"><h2 class="h-md">${hexi('doc')}<span>Observações e pendências</span></h2>
@@ -145,27 +179,34 @@ function save(now) {
   if (now) go(); else saveTimer = setTimeout(go, 350);
 }
 function onInput(e) {
-  const t = e.target; if (!t.dataset.p) return;
+  const t = e.target;
+  if (t.id === 'fq') { F.q = t.value; return drawMine(); }
+  if (!t.dataset.p) return;
   let v = t.value;
   if (t.dataset.p === 'aceite.doc') { v = v.replace(/[^\dxX.\-\/]/g, ''); if (v !== t.value) t.value = v; }
   setPath(D, t.dataset.p, v); save();
 }
 function onChange(e) {
   const t = e.target;
+  if (t.id === 'fde' || t.id === 'fate') { F[t.id === 'fde' ? 'de' : 'ate'] = t.value; return drawMine(); }
   if (t.dataset.file) handleFile(t.dataset.file, t.files[0], t);
 }
 async function onClick(e) {
+  const fs = e.target.closest('[data-fs]');
+  if (fs) { F.s = fs.dataset.fs; $$('[data-fs]', root).forEach(x => x.classList.toggle('on', x === fs)); return drawMine(); }
   const b = e.target.closest('[data-act],.seg button,.pill'); if (!b) return;
   if (b.matches('.seg button')) return setCheck(b);
   if (b.matches('.pill')) { setPath(D, b.parentElement.dataset.op, b.dataset.v); $$('.pill', b.parentElement).forEach(x => x.classList.toggle('on', x === b)); mo(b, { scale: [0.92, 1] }, spring); return save(); }
   const a = b.dataset.act;
   if (a === 'new') return startWizard();
-  if (a === 'discard') { if (confirm('Descartar o rascunho deste ROI?')) { await db.del('DRAFT-' + user.id); D = null; home(); } return; }
-  if (a === 'exit') { save(true); D = await db.get('DRAFT-' + user.id); toast('Rascunho salvo no aparelho'); return home(); }
+  if (a === 'open') return startWizard(b.dataset.id);
+  if (a === 'discard') { if (confirm('Descartar este rascunho de ROI?')) { await db.del(b.dataset.id); D = null; home(false); } return; }
+  if (a === 'exit') { save(true); D = null; toast('Rascunho salvo no aparelho'); return home(); }
   if (a === 'prev') { step = Math.max(0, step - 1); return renderStep(); }
   if (a === 'next') return next();
   if (a === 'cms') return lookupCMS();
-  if (a === 'demo') { $('#serie').value = 'RM-2026-0147'; D.equip.serie = 'RM-2026-0147'; return lookupCMS(); }
+  if (a === 'demo') { $('#serie').value = b.dataset.sn; D.equip.serie = b.dataset.sn; return lookupCMS(); }
+  if (a === 'addAvaria') { D.avariaN = Math.min(AVARIA.length, avariaN() + 1); $('#extraSlot > div').innerHTML = avariaSlots(); save(); return $(`[data-file=${AVARIA[D.avariaN - 1].k}]`, root).click(); }
   if (a === 'shot') return $(`[data-file=${b.dataset.k}]`, root).click();
   if (a === 'avaria') { D.avaria = !D.avaria; b.classList.toggle('on', D.avaria); b.setAttribute('aria-checked', D.avaria); $('#extraSlot').classList.toggle('open', D.avaria); save(); return; }
   if (a === 'clearSig') { const c = $('#sig'); c.getContext('2d').clearRect(0, 0, c.width, c.height); delete D.aceite.assinatura; return save(); }
@@ -231,7 +272,7 @@ async function watermark(file, label) {
 }
 async function handleFile(k, file, input) {
   if (!file) return;
-  const f = k === 'fx' ? FOTO_EXTRA : FOTOS.find(x => x.k === k);
+  const f = [...FOTOS, ...AVARIA].find(x => x.k === k);
   const res = await watermark(file, `${D.local.cliente || 'Cliente'} · ${f.t}`);
   input.value = '';
   const dlg = openModal(`<h3 class="h-md">Revalidar foto</h3><p class="hint">${esc(f.t)}</p>
@@ -242,7 +283,7 @@ async function handleFile(k, file, input) {
     closeModal();
     if (m === 'retake') return $(`[data-file=${k}]`, root).click();
     D.fotos[k] = { orig: file, ...res }; save(true);
-    const old = $(`.slot[data-k=${k}]`, root); const tmp = document.createElement('div'); tmp.innerHTML = slot(f, k === 'fx'); old.replaceWith(tmp.firstElementChild);
+    const old = $(`.slot[data-k=${k}]`, root); const tmp = document.createElement('div'); tmp.innerHTML = slot(f, k.startsWith('fx')); old.replaceWith(tmp.firstElementChild);
     mo($(`.slot[data-k=${k}]`, root), { scale: [0.96, 1] }, spring);
     const c = $('#phCount'); if (c) c.textContent = FOTOS.filter(x => D.fotos[x.k]).length + '/6';
     toast('Foto registrada');
@@ -266,7 +307,8 @@ function sigPad(cv) {
 /* Validação por passo */
 function validate() {
   const need = (p, label) => { if (!String(getPath(D, p) ?? '').trim()) return { p, msg: `Preencha: ${label}` }; };
-  if (step === 0) return need('local.cliente', 'Cliente') || need('local.ambiente', 'Ambiente') || need('local.endereco', 'Endereço') || need('local.localizacao', 'Localização do equipamento');
+  if (step === 0) return need('local.cliente', 'Cliente') || need('local.ambiente', 'Ambiente') || need('local.endereco', 'Endereço')
+    || (!D.local.uf ? { sel: '[data-op="local.uf"]', msg: 'Escolha o estado (UF)' } : null) || need('local.localizacao', 'Localização do equipamento');
   if (step === 1) return need('equip.serie', 'Nº de Série') || need('equip.pin', 'PIN') || need('equip.apk', 'APK versão') || need('equip.modem.op', 'Operadora do modem') || need('equip.modem.modelo', 'Modelo do modem') || need('equip.modem.imei', 'IMEI') || need('equip.modem.ns', 'N/S do modem') || need('equip.chip.op', 'Operadora do chip') || need('equip.chip.linha', 'Número da linha') || need('equip.chip.iccid', 'ICCID');
   if (step === 2) {
     for (const x of CHECK) { const v = D.checklist[x.k]; if (v?.ok == null) return { sel: `.chk[data-k=${x.k}]`, msg: `Responda: ${x.t}` }; if (v.ok === false && !v.obs?.trim()) return { sel: `.chk[data-k=${x.k}] textarea`, msg: `Observação obrigatória: ${x.t}` }; }

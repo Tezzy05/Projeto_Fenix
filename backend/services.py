@@ -49,6 +49,9 @@ def create_installation(db, storage, user, data: dict, photos: dict, signature: 
     err = rules.validate_roi_payload(data)
     if err:
         raise ApiError(err, 422)
+    ufs = [x for x in (user.get("ufs") or "").split(",") if x]
+    if ufs and data["local"]["uf"].strip() not in ufs:
+        raise ApiError("Estado (UF) fora da sua área de atuação", 422)
     avaria = bool(data.get("avaria"))
     for slot in rules.FOTO_SLOTS + ([rules.FOTO_EXTRA] if avaria else []):
         p = photos.get(slot)
@@ -68,11 +71,11 @@ def create_installation(db, storage, user, data: dict, photos: dict, signature: 
         sig_rel = storage.save(f"{base}/assinatura.png", signature)
         written.append(base)
         cur = db.execute(
-            """INSERT INTO instalacoes(codigo,client_uuid,tecnico_id,tecnico_nome,cliente,ambiente,endereco,localizacao,iniciado_em,encerrado_em,
+            """INSERT INTO instalacoes(codigo,client_uuid,tecnico_id,tecnico_nome,cliente,ambiente,endereco,localizacao,uf,iniciado_em,encerrado_em,
                sincronizado_em,serie,pin,apk,modem_op,modem_modelo,modem_imei,modem_ns,chip_op,chip_linha,chip_iccid,avaria,obs,
-               aceite_nome,aceite_doc,aceite_assinatura) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               aceite_nome,aceite_doc,aceite_assinatura) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (codigo, client_uuid, user["id"], user["nome"], loc["cliente"].strip(), loc["ambiente"].strip(), loc["endereco"].strip(),
-             loc["localizacao"].strip(), data.get("iniciadoEm"), int(data["closedAt"]), ts, eq["serie"].strip(), eq.get("pin", ""), eq.get("apk", ""),
+             loc["localizacao"].strip(), loc["uf"].strip(), data.get("iniciadoEm"), int(data["closedAt"]), ts, eq["serie"].strip(), eq.get("pin", ""), eq.get("apk", ""),
              modem.get("op", ""), modem.get("modelo", ""), modem.get("imei", ""), modem.get("ns", ""),
              chip.get("op", ""), chip.get("linha", ""), chip.get("iccid", ""), int(avaria), str(data.get("obs", ""))[:5000],
              ac["nome"].strip(), ac["doc"].strip(), sig_rel))
@@ -128,7 +131,7 @@ def roi_json(db, r, photos=True) -> dict:
     out = {
         "id": cod, "sync": "sincronizado", "tecnico": r["tecnico_nome"], "tecnicoId": r["tecnico_id"],
         "iniciadoEm": r["iniciado_em"], "closedAt": r["encerrado_em"], "syncedAt": r["sincronizado_em"],
-        "local": {"cliente": r["cliente"], "ambiente": r["ambiente"], "endereco": r["endereco"], "localizacao": r["localizacao"]},
+        "local": {"cliente": r["cliente"], "ambiente": r["ambiente"], "endereco": r["endereco"], "localizacao": r["localizacao"], "uf": r["uf"]},
         "equip": {"serie": r["serie"], "pin": r["pin"], "apk": r["apk"],
                   "modem": {"op": r["modem_op"], "modelo": r["modem_modelo"], "imei": r["modem_imei"], "ns": r["modem_ns"]},
                   "chip": {"op": r["chip_op"], "linha": r["chip_linha"], "iccid": r["chip_iccid"]}},
@@ -145,6 +148,16 @@ def roi_json(db, r, photos=True) -> dict:
                                     "mark": f"/api/roi/{cod}/foto/{f['slot']}?v=marca",
                                     "origUrl": f"/api/roi/{cod}/foto/{f['slot']}?v=orig" if f["arquivo_orig"] else None}
                         for f in db.execute("SELECT * FROM fotos WHERE instalacao_id=?", (r["id"],))}
+    return out
+
+
+def consulta_json(full: dict) -> dict:
+    """Perfil Consulta: só cliente, localidade, máquina, datas e fotos — sem checklist, LEI, equipamento técnico nem assinatura."""
+    out = {k: full.get(k) for k in ("id", "iniciadoEm", "closedAt", "local")}
+    out["equip"] = {"serie": full["equip"]["serie"]}
+    out["lei"] = {"status": full["lei"]["status"]} if full.get("lei") else None
+    if "fotos" in full:
+        out["fotos"] = full["fotos"]
     return out
 
 

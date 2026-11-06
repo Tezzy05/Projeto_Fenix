@@ -81,10 +81,10 @@ export function toast(msg, kind = '') {
 }
 
 let modalCleanup = null;
-export function openModal(html, { wide = false, onClose } = {}) {
+export function openModal(html, { wide = false, cls = '', onClose } = {}) {
   closeModal();
   const m = $('#modal');
-  m.innerHTML = `<div class="scrim"></div><div class="dialog ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">${html}</div>`;
+  m.innerHTML = `<div class="scrim"></div><div class="dialog ${wide ? 'wide' : ''} ${cls}" role="dialog" aria-modal="true">${html}</div>`;
   m.classList.add('open');
   modalCleanup = onClose;
   mo($('.scrim', m), { opacity: [0, 1] }, { duration: 0.2 });
@@ -102,6 +102,16 @@ export function closeModal() {
 
 export const chip = (txt, kind = '') => `<span class="chip ${kind}">${esc(txt)}</span>`;
 export const statusChip = l => l.status === 'DISPONIVEL_PROJETOS' ? chip('Disponível p/ Projetos', 'lime') : chip('Aguardando validação', 'warn');
+
+/** Baixa um Blob como arquivo. */
+export function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+/** Texto seguro para nome de arquivo/pasta: sem acentos nem símbolos. */
+export const slug = t => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'sem-nome';
 
 export function setPath(o, path, v) {
   const k = path.split('.'); const last = k.pop();

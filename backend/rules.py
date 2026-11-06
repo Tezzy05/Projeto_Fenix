@@ -12,10 +12,13 @@ CHECK = [
 ]
 CHECK_KEYS = [k for k, _ in CHECK]
 FOTO_SLOTS = ["f1", "f2", "f3", "f4", "f5", "f6"]
-FOTO_EXTRA = "fx"
-ALL_SLOTS = FOTO_SLOTS + [FOTO_EXTRA]
+FOTO_EXTRA = "fx"                                         # canhoto do frete: obrigatória quando há avaria
+AVARIA_SLOTS = [FOTO_EXTRA, "fx2", "fx3", "fx4", "fx5"]   # até 5 fotos de avaria
+ALL_SLOTS = FOTO_SLOTS + AVARIA_SLOTS
 
 PERFIS = ("tecnico", "gestao", "projetos", "adm", "consulta")
+UFS = ("AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI",
+       "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO")
 
 TERMO_PADRAO = (
     "Este documento atesta a conformidade da instalação e da integridade da comunicação visual conforme o escopo do projeto. "
@@ -58,6 +61,8 @@ def validate_roi_payload(d: dict) -> str | None:
             v = v.get(p) if isinstance(v, dict) else None
         return str(v).strip() if v is not None else ""
 
+    if txt("local", "uf") not in UFS:
+        return "Campo obrigatório ausente: estado (UF)"
     for path, nome in [(("local", "cliente"), "cliente"), (("local", "ambiente"), "ambiente"), (("local", "endereco"), "endereço"),
                        (("local", "localizacao"), "localização"), (("equip", "serie"), "nº de série"), (("equip", "pin"), "PIN"),
                        (("equip", "apk"), "APK"), (("equip", "modem", "op"), "operadora do modem"), (("equip", "chip", "op"), "operadora do chip"),
