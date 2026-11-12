@@ -2,6 +2,8 @@
 
 Fluxo **preparação na base → máquina disponível → designação → ROI → LEI → Check-in Fotográfico**: front mobile-first offline-first + backend Flask.
 
+Documentação técnica completa (arquitetura, banco de dados, API, regras de negócio, segurança e implantação): [docs/DOCUMENTACAO_TECNICA.md](docs/DOCUMENTACAO_TECNICA.md).
+
 ## Processo
 1. **Preparação na base (técnico):** checklist com 6 itens, cada um conforme / não conforme e com foto (hardware, software, módulos de segurança, modem, tela/botão promocional — opcional — e adesivação), mais 3 fotos da máquina adesivada e ligada. Sem não conformidades, a máquina fica **disponível para instalação**; com alguma, fica **não conforme** até um novo checklist. O histórico guarda todas as tentativas e o que foi corrigido.
 2. **Designação (Gestão):** visão nacional das máquinas; a Gestão designa o técnico responsável (só técnicos que atuam no estado da base), troca ou retira.
